@@ -1,0 +1,4 @@
+-r requirements/platform.txt
+-r requirements/agents.txt
+-r requirements/evaluation.txt
+-r requirements/ui.txt
