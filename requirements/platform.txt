@@ -1,0 +1,4 @@
+# Роль 4: клиент GigaChat, настройки, тесты
+gigachat
+python-dotenv
+pytest
