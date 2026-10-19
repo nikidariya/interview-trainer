@@ -9,14 +9,22 @@ MAX_VACANCY_CHARS = 6000
 
 def init_state() -> None:
     """Создаёт переменные сессии при первом запуске страницы"""
-    defaults = {"session": None, "messages": [], "report": None, "pending": None, "error": None}
+    defaults = {
+        "session": None, "messages": [], "report": None, "pending": None, "error": None,
+        "vacancy_error": None, "vacancy_draft": "",
+    }
     for key, value in defaults.items():
         st.session_state.setdefault(key, value)
 
 
 def show_vacancy_form() -> None:
     """Поле для вакансии с проверкой длины"""
-    vacancy = st.text_area("Вставьте текст вакансии:", height=250)
+    if st.session_state.vacancy_error:
+        st.warning(
+            "Не получилось составить план интервью по этому тексту. "
+            "Проверьте, что это описание вакансии, и попробуйте ещё раз"
+        )
+    vacancy = st.text_area("Вставьте текст вакансии", value=st.session_state.vacancy_draft, height=250)
     if not st.button("Начать интервью"):
         return
     vacancy = vacancy.strip()
@@ -25,6 +33,8 @@ def show_vacancy_form() -> None:
     elif len(vacancy) > MAX_VACANCY_CHARS:
         st.warning(f"Текст слишком длинный: {len(vacancy)} символов, максимум {MAX_VACANCY_CHARS}")
     else:
+        st.session_state.vacancy_error = None
+        st.session_state.vacancy_draft = vacancy
         st.session_state.pending = ("start", vacancy)
         st.rerun()
 
@@ -78,6 +88,11 @@ def run_pending() -> None:
             state.pending = None
     except LLMError as error:
         state.error = str(error)  # pending не сбрасываем, чтобы можно было повторить
+    except ValueError as error:
+        if kind != "start":
+            raise
+        state.pending = None
+        state.vacancy_error = str(error)
     st.rerun()
 
 
