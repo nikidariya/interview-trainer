@@ -5,47 +5,40 @@ from app.prompts import load_prompt
 from app.schemas import InterviewPlan
 
 
-_FALLBACK_TOPICS = (
-    "Мотивация и интерес к выбранной профессии",
-    "Опыт выполнения похожих рабочих задач",
-    "Разбор сложной рабочей ситуации",
-    "Взаимодействие с коллегами и заказчиками",
-    "Проверка качества и результатов своей работы",
-)
-
-
 def build_plan(vacancy_text: str) -> InterviewPlan:
-    vacancy = vacancy_text.strip()[:6000] if isinstance(vacancy_text, str) else ""
-    response = ""
-    if vacancy:
-        try:
-            response = gigachat_client.chat(
-                agent="analyst",
-                system_prompt=load_prompt("analyst"),
-                messages=[{"role": "user", "content": vacancy}],
-                temperature=0.2,
-            )
-        except gigachat_client.LLMError:
-            # Клиент уже записал ошибку в журнал; интервью продолжится с общим планом.
-            pass
+    if not isinstance(vacancy_text, str) or not vacancy_text.strip():
+        raise ValueError("Введите непустой текст вакансии.")
+    vacancy = vacancy_text.strip()[:6000]
+    response = gigachat_client.chat(
+        agent="analyst",
+        system_prompt=load_prompt("analyst"),
+        messages=[{"role": "user", "content": vacancy}],
+        temperature=0.2,
+    )
+    if not isinstance(response, str) or not response.strip():
+        raise ValueError("Аналитик вакансии вернул пустой или некорректный ответ. Повторите попытку.")
 
-    values = parse_key_values(response, ["Роль", "Уровень"])
-    level = values.get("Уровень", "middle").strip().lower()
+    values = {}
+    # Разбор по строкам не позволяет пустому полю захватить следующую строку.
+    for line in response.splitlines():
+        values.update(parse_key_values(line, ["Ошибка", "Роль", "Уровень"]))
+    if "Ошибка" in values:
+        raise ValueError(f"Не удалось составить план интервью: {values['Ошибка'].strip()}")
+    role = values.get("Роль", "").strip()
+    if not role:
+        raise ValueError("В ответе аналитика отсутствует название профессии (Роль).")
+    level = values.get("Уровень", "").strip().lower()
     if level not in {"junior", "middle", "senior"}:
-        level = "middle"
+        raise ValueError("В ответе аналитика должен быть указан уровень junior, middle или senior.")
 
-    topics = []
-    seen = set()
-    for topic in [*parse_numbered_list(response), *_FALLBACK_TOPICS]:
-        topic = topic.strip()
-        if topic and topic.casefold() not in seen:
-            topics.append(topic)
-            seen.add(topic.casefold())
-        if len(topics) == 5:
-            break
+    topics = [topic.strip() for topic in parse_numbered_list(response)]
+    if len(topics) != 5 or not all(topics):
+        raise ValueError("В ответе аналитика должно быть ровно 5 непустых тем интервью.")
+    if len({topic.casefold() for topic in topics}) != 5:
+        raise ValueError("Темы интервью в ответе аналитика должны быть разными.")
 
     return InterviewPlan(
-        role=values.get("Роль", "Специалист").strip() or "Специалист",
+        role=role,
         level=level,
         topics=topics,
     )
