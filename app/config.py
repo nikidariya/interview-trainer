@@ -11,7 +11,7 @@ load_dotenv()
 class Settings:
     credentials: str = os.getenv("GIGACHAT_CREDENTIALS", "")
     scope: str = os.getenv("GIGACHAT_SCOPE", "GIGACHAT_API_PERS")
-    model: str = os.getenv("GIGACHAT_MODEL", "GigaChat")
+    model: str = os.getenv("GIGACHAT_MODEL", "GigaChat-2")
     verify_ssl: bool = os.getenv("GIGACHAT_VERIFY_SSL", "true").lower() == "true"
     timeout_seconds: int = int(os.getenv("LLM_TIMEOUT_SECONDS", "60"))
     max_retries: int = int(os.getenv("LLM_MAX_RETRIES", "2"))
