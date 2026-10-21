@@ -1,4 +1,4 @@
 # Роль 4: клиент GigaChat, настройки, тесты
-gigachat
-python-dotenv
-pytest
+gigachat==0.2.3
+python-dotenv==1.2.4
+pytest==9.1.1

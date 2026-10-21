@@ -1,0 +1,154 @@
+/* Ретро-пиксельный стиль в духе RetroUI */
+@import url('https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+:root {
+    --ink: #111111;
+    --paper: #FFFBEB;
+    --card: #FFFFFF;
+    --yellow: #FFE58F;
+    --purple: #C4A1FF;
+    --pink: #FFB3D9;
+    --muted: #57534E;
+    --shadow: 4px 4px 0 var(--ink);
+}
+
+html, body, .stMarkdown, .stTextArea textarea, .stChatInput textarea {
+    font-family: 'IBM Plex Mono', ui-monospace, monospace;
+}
+.pixel, .brand, .hero h1, .card-title, .feature b, .stButton > button p {
+    font-family: 'Pixelify Sans', 'IBM Plex Mono', monospace !important;
+}
+
+/* Фон в точку, как миллиметровка */
+[data-testid="stApp"] {
+    background-color: var(--paper);
+    background-image: radial-gradient(rgba(17, 17, 17, 0.12) 1px, transparent 1px);
+    background-size: 22px 22px;
+}
+[data-testid="stMainBlockContainer"] { max-width: 1000px; padding-top: 1.2rem; }
+[data-testid="stHeader"] { background: transparent; }
+#MainMenu, footer, [data-testid="stAppDeployButton"] { visibility: hidden; }
+
+/* Шапка */
+.st-key-navbar { padding-bottom: 12px; border-bottom: 3px solid var(--ink); }
+.brand-row { display: flex; align-items: center; gap: 12px; }
+.logo {
+    width: 44px; height: 44px; background: var(--purple);
+    border: 3px solid var(--ink); box-shadow: 3px 3px 0 var(--ink);
+    display: flex; align-items: center; justify-content: center;
+}
+.brand { font-size: 1.6rem; font-weight: 700; color: var(--ink); }
+
+/* Hero */
+.hero { position: relative; text-align: center; padding: 2.4rem 0 1.6rem; }
+.badge {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 6px 14px; background: var(--yellow);
+    border: 2px solid var(--ink); box-shadow: 3px 3px 0 var(--ink);
+    font-weight: 600; font-size: 0.85rem; color: var(--ink);
+    transform: rotate(-2deg);
+}
+.hero h1 {
+    font-size: 3.2rem; font-weight: 700; color: var(--ink);
+    margin: 1.2rem 0 0.4rem; padding: 0; letter-spacing: 1px;
+}
+.hero p { color: var(--muted); font-size: 1.05rem; margin: 0; }
+.hero mark { background: var(--pink); padding: 0 6px; border: 2px solid var(--ink); }
+.sparkle { position: absolute; animation: blink 1.6s steps(2) infinite; }
+.sparkle.s1 { left: 8%; top: 30%; }
+.sparkle.s2 { right: 10%; top: 62%; animation-delay: 0.8s; }
+@keyframes blink { 50% { opacity: 0.25; } }
+
+/* Карточки (контейнеры с key="card_...") */
+div[class*="st-key-card"] {
+    background: var(--card);
+    border: 3px solid var(--ink) !important;
+    border-radius: 0;
+    box-shadow: 6px 6px 0 var(--ink);
+    padding: 1.3rem 1.4rem;
+}
+.card-title { display: flex; align-items: center; gap: 10px; font-size: 1.35rem; font-weight: 700; color: var(--ink); }
+.hint { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 0.85rem; }
+
+/* Поле вакансии */
+.stTextArea textarea {
+    background: var(--paper) !important;
+    border: 2px solid var(--ink) !important;
+    border-radius: 0 !important;
+    font-size: 0.95rem;
+}
+.stTextArea [data-baseweb="textarea"] { border: none !important; border-radius: 0 !important; }
+
+/* Кнопки: жёлтая основная, белая обычная, «нажимаются» при клике */
+.stButton > button {
+    border: 2px solid var(--ink) !important;
+    border-radius: 0 !important;
+    box-shadow: var(--shadow);
+    background: var(--card); color: var(--ink);
+    transition: transform 0.05s, box-shadow 0.05s;
+}
+.stButton > button p { font-size: 1.05rem; font-weight: 600; }
+.stButton > button[kind="primary"] { background: var(--yellow) !important; color: var(--ink) !important; padding: 0.6rem 1.2rem; }
+.stButton > button:hover { background: var(--purple) !important; color: var(--ink) !important; }
+.stButton > button:active { transform: translate(4px, 4px); box-shadow: 0 0 0 var(--ink); }
+.stButton > button:disabled { opacity: 0.5; box-shadow: none; }
+
+/* Карточки возможностей, слегка «разбросаны» */
+.features { display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; margin-top: 1.6rem; }
+.feature {
+    background: var(--card); border: 3px solid var(--ink);
+    box-shadow: var(--shadow); padding: 1.1rem 1.2rem;
+}
+.feature:nth-child(1) { transform: rotate(-1.5deg); background: #FFF7D6; }
+.feature:nth-child(2) { transform: rotate(1deg); }
+.feature:nth-child(3) { transform: rotate(-0.8deg); background: #F3EBFF; }
+.feature b { display: block; color: var(--ink); margin: 0.6rem 0 0.2rem; font-size: 1.15rem; }
+.feature span { color: var(--muted); font-size: 0.88rem; }
+@media (max-width: 700px) {
+    .features { grid-template-columns: 1fr; }
+    .hero h1 { font-size: 2.2rem; }
+    .sparkle { display: none; }
+}
+
+/* Чат: сообщения как «пиксельные» облачка */
+[data-testid="stChatMessage"] {
+    background: var(--card);
+    border: 2px solid var(--ink);
+    border-radius: 0;
+    box-shadow: var(--shadow);
+    padding: 0.8rem 1rem;
+    margin-bottom: 0.6rem;
+}
+[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) {
+    background: var(--yellow);
+    width: 88%;
+    margin-left: auto;
+}
+[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarAssistant"]) { width: 88%; }
+[data-testid="stChatMessageAvatarAssistant"],
+[data-testid="stChatMessageAvatarUser"] { border: 2px solid var(--ink); border-radius: 0; color: var(--ink); }
+[data-testid="stChatMessageAvatarAssistant"] { background: var(--purple); }
+[data-testid="stChatMessageAvatarUser"] { background: var(--card); }
+
+/* Поле ответа */
+[data-testid="stChatInput"] > div {
+    border: 2px solid var(--ink) !important;
+    border-radius: 0 !important;
+    box-shadow: var(--shadow);
+    background: var(--card);
+}
+[data-testid="stBottom"] > div { background: transparent; }
+
+/* Прогресс как «полоска здоровья» */
+.stProgress p { font-family: 'Pixelify Sans', monospace; font-size: 1rem; }
+[data-testid="stProgressBarTrack"] {
+    height: 18px; border: 2px solid var(--ink); border-radius: 0;
+    background: var(--card); overflow: hidden;
+}
+[data-testid="stProgressBarTrack"] > div {
+    height: 100%; border-radius: 0;
+    background: repeating-linear-gradient(90deg, var(--purple) 0 12px, #A57BFF 12px 14px);
+}
+
+/* Предупреждения и ошибки тоже в рамке */
+[data-testid="stAlert"] > div { border: 2px solid var(--ink); border-radius: 0; box-shadow: 3px 3px 0 var(--ink); }
