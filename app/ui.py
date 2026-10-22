@@ -182,9 +182,10 @@ def run_pending() -> None:
         state.error = str(error)  # pending не сбрасываем, чтобы можно было повторить
     except ValueError as error:
         if kind != "start":
-            raise
-        state.pending = None
-        state.vacancy_error = str(error)
+            state.error = str(error)
+        else:
+            state.pending = None
+            state.vacancy_error = str(error)
     st.rerun()
 
 
