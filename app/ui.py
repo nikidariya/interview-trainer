@@ -190,7 +190,7 @@ def run_pending() -> None:
 
 
 def show_error_with_retry() -> None:
-    st.error("Не удалось получить ответ от GigaChat. Проверьте интернет и ключ, затем повторите")
+    st.error("Не удалось получить корректный ответ от GigaChat. Повторите чуть позже.")
     with st.expander("Подробности"):
         st.write(st.session_state.error)
     if st.button("Повторить"):
