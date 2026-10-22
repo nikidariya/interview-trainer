@@ -15,6 +15,7 @@ RUN curl -k "https://gu-st.ru/content/Other/doc/russian_trusted_root_ca.cer" -w 
 
 COPY app/ app/
 COPY prompts/ prompts/
+COPY .streamlit/ .streamlit/
 
 EXPOSE 8501
 CMD ["python", "-m", "streamlit", "run", "app/ui.py", "--server.address=0.0.0.0", "--server.port=8501"]
