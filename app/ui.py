@@ -181,18 +181,16 @@ def run_pending() -> None:
     except LLMError as error:
         state.error = str(error)  # pending не сбрасываем, чтобы можно было повторить
     except ValueError as error:
-        if kind == "start":
+        if kind != "start":
+            state.error = str(error)
+        else:
             state.pending = None
             state.vacancy_error = str(error)
-        else:
-            # интервьюер вернул пустой или повторный вопрос; оркестратор ничего не записал, повтор безопасен
-            state.error = str(error)
-
     st.rerun()
 
 
 def show_error_with_retry() -> None:
-    st.error("Не удалось получить ответ от модели. Попробуйте повторить")
+    st.error("Не удалось получить корректный ответ от GigaChat. Повторите чуть позже.")
     with st.expander("Подробности"):
         st.write(st.session_state.error)
     if st.button("Повторить"):
