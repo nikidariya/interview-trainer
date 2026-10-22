@@ -78,11 +78,13 @@ def _best_and_worst(scores: list[AnswerScore], count: int) -> tuple[int, int] | 
     return max(totals)[1], min(totals)[1]
 
 
-def _build_message(plan: InterviewPlan, history: list[Turn], scores: list[AnswerScore]) -> str:
+def _build_message(plan: InterviewPlan, history: list[Turn], scores: list[AnswerScore],
+                   with_extremes: bool) -> str:
     topics = "\n".join(f"- {topic}" for topic in plan.topics)
     parts = [f"Должность: {plan.role}", f"Уровень: {plan.level}", f"Темы интервью:\n{topics}",
              f"Диалог:\n\n{_format_dialog(history, scores)}"]
-    extremes = _best_and_worst(scores, len(history))
+    # Лучший и худший ответ нужны только для проверки модели в ноутбуке, пользователю их не показываем.
+    extremes = _best_and_worst(scores, len(history)) if with_extremes else None
     if extremes:
         parts.append(f"По оценкам лучший ответ №{extremes[0]}, худший ответ №{extremes[1]}.")
     parts.append("Напиши итоговый разбор по инструкции.")
@@ -99,19 +101,18 @@ def _fallback_report(history: list[Turn], scores: list[AnswerScore]) -> str:
         for name in criteria:
             values = [score.scores[name] for score in rated if name in score.scores]
             lines.append(f"{name}: в среднем {sum(values) / len(values):.1f} из 5.")
-    extremes = _best_and_worst(scores, len(history))
-    if extremes:
-        lines.append(f"Лучший ответ: №{extremes[0]}. Худший ответ: №{extremes[1]}.")
     return "\n".join(lines)
 
 
-def final_report(plan: InterviewPlan, history: list[Turn], scores: list[AnswerScore]) -> str:
+def final_report(plan: InterviewPlan, history: list[Turn], scores: list[AnswerScore],
+                 system_prompt: str | None = None) -> str:
+    """system_prompt передаёт ноутбук проверки: свой промпт с разделом «Лучший и худший ответ»."""
     if not history:
         return "Интервью не состоялось: не было ни одного ответа, разбирать пока нечего."
-    message = _build_message(plan, history, scores)
+    message = _build_message(plan, history, scores, with_extremes=system_prompt is not None)
     try:
-        text = chat("coach", load_prompt("coach"), [{"role": "user", "content": message}],
-                    temperature=0.5)
+        text = chat("coach", system_prompt or load_prompt("coach"),
+                    [{"role": "user", "content": message}], temperature=0.5)
         return _remove_invented_examples(text)
     except LLMError:
         return _fallback_report(history, scores)
