@@ -1,14 +1,35 @@
 """Роль 1. Аналитик вакансии: текст вакансии -> план интервью."""
+import re
+
 from app import gigachat_client
 from app.parsing import parse_key_values, parse_numbered_list
 from app.prompts import load_prompt
 from app.schemas import InterviewPlan
 
 
+def is_relevant_page(page_text: str, user_text: str = "") -> bool:
+    """Спрашивает модель, описана ли на странице вакансия. Непонятный ответ считается отказом."""
+    response = gigachat_client.chat(
+        agent="analyst",
+        system_prompt=load_prompt("analyst_link_check"),
+        messages=[{
+            "role": "user",
+            "content": f"Текст пользователя:\n{user_text or '(нет)'}\n\nСодержимое страницы:\n{page_text}",
+        }],
+        temperature=0.0,
+    )
+    if not isinstance(response, str):
+        return False
+    # Модель часто отвечает просто «да», без ключа из формата
+    answer = parse_key_values(response, ["Релевантна"]).get("Релевантна", response)
+    words = re.findall(r"\w+", answer.casefold())
+    return words[:1] == ["да"] and "нет" not in words
+
+
 def build_plan(vacancy_text: str) -> InterviewPlan:
     if not isinstance(vacancy_text, str) or not vacancy_text.strip():
         raise ValueError("Введите непустой текст вакансии.")
-    vacancy = vacancy_text.strip()[:6000]
+    vacancy = vacancy_text.strip()[:12000]  # до 6000 символов текста пользователя и 6000 со страницы
     response = gigachat_client.chat(
         agent="analyst",
         system_prompt=load_prompt("analyst"),

@@ -67,6 +67,9 @@ div[class*="st-key-card"] {
     box-shadow: 6px 6px 0 var(--ink);
     padding: 1.3rem 1.4rem;
 }
+/* Streamlit задаёт детям ширину всего блока в пикселях, из-за padding они вылезали за рамку */
+div[class*="st-key-card"] { box-sizing: border-box; }
+div[class*="st-key-card"] > * { width: 100% !important; max-width: 100%; box-sizing: border-box; }
 .card-title { display: flex; align-items: center; gap: 10px; font-size: 1.35rem; font-weight: 700; color: var(--ink); }
 .hint { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 0.85rem; }
 

@@ -1,9 +1,32 @@
 """Роль 3. Ход интервью: решает, какой агент вызывается следующим """
+from app import link_reader
 from app.agents import analyst, coach, evaluator, interviewer
 from app.schemas import AnswerScore, InterviewPlan, Turn
 
 # Если конкретика ниже этого порога, интервьюер задаёт один уточняющий вопрос
 CLARIFY_THRESHOLD = 3
+
+
+LINK_UNUSABLE_MESSAGE = (
+    "Не удалось найти вакансию по этой ссылке: сайт недоступен или на странице нет описания вакансии. "
+    "Вставьте текст вакансии вручную"
+)
+
+
+def _with_link_content(vacancy_text: str) -> str:
+    """Если в тексте есть ссылка на вакансию, добавляет содержимое страницы. Иначе возвращает текст как есть"""
+    url = link_reader.extract_url(vacancy_text)
+    if url is None:
+        return vacancy_text
+    user_text = vacancy_text.replace(url, " ").strip()
+    page_text = link_reader.fetch_page_text(url)
+    if page_text and analyst.is_relevant_page(page_text, user_text):
+        if not user_text:
+            return page_text
+        return f"Текст пользователя:\n{user_text}\n\nСодержимое страницы вакансии:\n{page_text}"
+    if not user_text:
+        raise ValueError(LINK_UNUSABLE_MESSAGE)
+    return user_text
 
 
 class InterviewSession:
@@ -19,7 +42,7 @@ class InterviewSession:
 
     def start(self, vacancy_text: str) -> str:
         """Принимает текст вакансии, возвращает первый вопрос"""
-        plan = analyst.build_plan(vacancy_text)
+        plan = analyst.build_plan(_with_link_content(vacancy_text))
         question = interviewer.next_question(plan, self.history, self.topic_index)
         # Состояние меняем только после того, как оба агента ответили без ошибок
         self.plan = plan

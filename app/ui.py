@@ -4,7 +4,8 @@ from pathlib import Path
 import streamlit as st
 
 from app.gigachat_client import LLMError
-from app.orchestrator import InterviewSession
+from app.link_reader import extract_url
+from app.orchestrator import LINK_UNUSABLE_MESSAGE, InterviewSession
 
 MAX_VACANCY_CHARS = 6000
 
@@ -94,7 +95,9 @@ def show_vacancy_form() -> None:
     with st.container(key="card_vacancy"):
         st.markdown(f'<div class="card-title">{icon("briefcase")} Вакансия для собеседования</div>',
                     unsafe_allow_html=True)
-        if st.session_state.vacancy_error:
+        if st.session_state.vacancy_error == LINK_UNUSABLE_MESSAGE:
+            st.warning(LINK_UNUSABLE_MESSAGE)
+        elif st.session_state.vacancy_error:
             st.warning(
                 "Не получилось составить план интервью по этому тексту. "
                 "Проверьте, что это описание вакансии, и попробуйте ещё раз"
@@ -102,12 +105,12 @@ def show_vacancy_form() -> None:
         vacancy = st.text_area(
             "Текст вакансии", value=st.session_state.vacancy_draft, height=200,
             label_visibility="collapsed",
-            placeholder="Вставьте сюда текст вакансии: описание компании, требования, обязанности и технологии…",
+            placeholder="Вставьте сюда текст вакансии и/или ссылку на неё: описание компании, требования, обязанности и технологии…",
         )
         hint_col, button_col = st.columns([3, 1.3], vertical_alignment="center")
         with hint_col:
             st.markdown(f'<div class="hint">{icon("shield", 15, "#57534E")} '
-                        f'Вопросы подбираются под вакансию',
+                        f'Вопросы подбираются под вакансию. Можно прислать ссылку',
                         unsafe_allow_html=True)
         with button_col:
             clicked = st.button("Начать интервью →", type="primary", use_container_width=True)
@@ -115,7 +118,7 @@ def show_vacancy_form() -> None:
         if clicked:
             vacancy = vacancy.strip()
             if not vacancy:
-                message = "Вставьте текст вакансии"
+                message = "Вставьте текст вакансии или ссылку на неё"
             elif len(vacancy) > MAX_VACANCY_CHARS:
                 message = f"Текст слишком длинный: {len(vacancy)} символов, максимум {MAX_VACANCY_CHARS}"
             else:
@@ -160,7 +163,8 @@ def run_pending() -> None:
     kind, payload = state.pending
     try:
         if kind == "start":
-            with st.spinner("Разбираю вакансию и готовлю первый вопрос..."):
+            action = "Читаю ссылку и разбираю вакансию" if extract_url(payload) else "Разбираю вакансию"
+            with st.spinner(f"{action} и готовлю первый вопрос..."):
                 session = InterviewSession()
                 first_question = session.start(payload)
             state.session = session
