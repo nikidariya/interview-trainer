@@ -3,6 +3,7 @@ from pathlib import Path
 
 import streamlit as st
 
+from app.auth import require_login, show_account
 from app.gigachat_client import LLMError
 from app.link_reader import extract_url
 from app.orchestrator import LINK_UNUSABLE_MESSAGE, InterviewSession
@@ -204,6 +205,8 @@ def show_error_with_retry() -> None:
 
 st.set_page_config(page_title="InterviewAI — тренажёр собеседований", page_icon="🎯", layout="centered")
 load_css()
+require_login()
+show_account()
 init_state()
 
 busy = st.session_state.pending is not None and not st.session_state.error

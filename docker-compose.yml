@@ -6,4 +6,10 @@ services:
       - "8501:8501"
     volumes:
       - ./logs:/app/logs
+      - type: bind
+        source: ./.streamlit/secrets.toml
+        target: /app/.streamlit/secrets.toml
+        read_only: true
+        bind:
+          create_host_path: false
     restart: unless-stopped
