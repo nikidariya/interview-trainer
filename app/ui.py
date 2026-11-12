@@ -3,7 +3,8 @@ from pathlib import Path
 
 import streamlit as st
 
-from app.auth import require_login, reset_interview, show_account
+from app.auth import current_account, logout, reset_interview, show_account_error, show_login
+from app.users import StorageUnavailable
 from app.gigachat_client import LLMError
 from app.link_reader import extract_url
 from app.orchestrator import LINK_UNUSABLE_MESSAGE, InterviewSession
@@ -33,10 +34,10 @@ def load_css() -> None:
     st.markdown(f"<style>{css}</style>", unsafe_allow_html=True)
 
 
-def show_navbar(busy: bool) -> None:
+def show_navbar(busy: bool, account: dict | None) -> None:
     """Шапка: логотип слева, «Начать заново» справа (во время интервью)"""
     with st.container(key="navbar"):
-        left, right = st.columns([4, 1], vertical_alignment="center")
+        left, right = st.columns([3, 2], vertical_alignment="center")
     with left:
         st.markdown(
             f'<div class="brand-row"><div class="logo">{icon("brain", 24)}</div>'
@@ -44,10 +45,17 @@ def show_navbar(busy: bool) -> None:
             unsafe_allow_html=True,
         )
     with right:
+        if account:
+            st.text(account["name"])
+            st.button("Выйти", on_click=logout, disabled=busy, use_container_width=True)
+        elif st.button("Войти", key="open_login", disabled=busy, use_container_width=True):
+            st.session_state["_login_open"] = True
         started = st.session_state.session is not None or st.session_state.pending is not None
         if started and st.button("↺ Начать заново", disabled=busy, use_container_width=True):
             reset_interview()
             st.rerun()
+    if not account and not busy and st.session_state.get("_login_open"):
+        show_login()
 
 
 # пиксельная звёздочка-«искра» для декора
@@ -105,6 +113,7 @@ def show_vacancy_form() -> None:
             )
         vacancy = st.text_area(
             "Текст вакансии", value=st.session_state.vacancy_draft, height=200,
+            key="vacancy_input", on_change=save_vacancy_draft,
             label_visibility="collapsed",
             placeholder="Вставьте сюда текст вакансии и/или ссылку на неё: описание компании, требования, обязанности и технологии…",
         )
@@ -130,6 +139,10 @@ def show_vacancy_form() -> None:
         if message:
             st.warning(message)
     show_features()
+
+
+def save_vacancy_draft() -> None:
+    st.session_state.vacancy_draft = st.session_state.vacancy_input
 
 
 def show_chat() -> None:
@@ -205,12 +218,14 @@ def show_error_with_retry() -> None:
 
 st.set_page_config(page_title="InterviewAI — тренажёр собеседований", page_icon="🎯", layout="centered")
 load_css()
-require_login()
-show_account()
+try:
+    account = current_account()
+except StorageUnavailable as error:
+    show_account_error(error)
 init_state()
 
 busy = st.session_state.pending is not None and not st.session_state.error
-show_navbar(busy)
+show_navbar(busy, account)
 
 if st.session_state.session is None and st.session_state.pending is None:
     show_vacancy_form()

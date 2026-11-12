@@ -26,7 +26,8 @@ def auth_is_configured() -> bool:
         auth = st.secrets.get("auth", {})
     except StreamlitSecretNotFoundError:
         return False
-    required = ("redirect_uri", "cookie_secret", "client_id", "client_secret", "server_metadata_url")
+    required = ("redirect_uri", "cookie_secret", "client_id",
+                "client_secret", "server_metadata_url")
     return all(
         isinstance(auth.get(key), str)
         and auth[key].strip()
@@ -51,17 +52,28 @@ def _start_local_session(account: dict) -> None:
     st.rerun()
 
 
+def clear_login_fields() -> None:
+    st.session_state["_login_open"] = False
+    for key in ("login_username", "login_password", "register_username", "register_password", "register_confirmation"):
+        st.session_state.pop(key, None)
+
+
+@st.dialog("Вход в аккаунт", on_dismiss=clear_login_fields)
 def show_login() -> None:
-    st.title("Подготовьтесь к собеседованию")
-    st.write("Войдите в аккаунт или зарегистрируйтесь, чтобы начать интервью.")
+    if st.session_state.get("session") is not None or st.session_state.get("pending") is not None:
+        st.warning("После входа или регистрации текущее интервью начнётся заново. "
+                   "Переход в Google также может сбросить интервью.")
     login_tab, register_tab = st.tabs(["Вход", "Регистрация"])
     with login_tab:
         with st.form("password_login", clear_on_submit=True):
-            username = st.text_input("Логин", max_chars=32, key="login_username")
-            password = st.text_input("Пароль", type="password", max_chars=128, key="login_password")
+            username = st.text_input(
+                "Логин", max_chars=32, key="login_username")
+            password = st.text_input(
+                "Пароль", type="password", max_chars=128, key="login_password")
             submitted = st.form_submit_button("Войти", type="primary")
         if submitted:
             try:
+                prepare_database()
                 account = users.authenticate(username, password)
             except (ValueError, users.StorageUnavailable) as error:
                 st.error(str(error))
@@ -72,72 +84,67 @@ def show_login() -> None:
             username = st.text_input("Логин", max_chars=32, key="register_username",
                                      help="3–32 символа: латинские буквы, цифры, _, . или -; регистр не учитывается.")
             password = st.text_input("Пароль", type="password", max_chars=128, key="register_password",
-                                     help="От 15 до 128 символов. Можно использовать длинную фразу.")
-            confirmation = st.text_input("Повторите пароль", type="password", max_chars=128)
-            submitted = st.form_submit_button("Зарегистрироваться", type="primary")
+                                     help="От 8 до 128 символов. Можно использовать длинную фразу.")
+            confirmation = st.text_input(
+                "Повторите пароль", type="password", max_chars=128, key="register_confirmation")
+            submitted = st.form_submit_button(
+                "Зарегистрироваться", type="primary")
         if submitted:
             if password != confirmation:
                 st.error("Пароли не совпадают.")
             else:
                 try:
+                    prepare_database()
                     account = users.register(username, password)
                 except (ValueError, users.StorageUnavailable) as error:
                     st.error(str(error))
                 else:
                     _start_local_session(account)
     if auth_is_configured():
-        st.divider()
-        st.button("Войти через Google", on_click=st.login)
+        st.button("Войти через Google", key="google_login", on_click=st.login)
 
 
-def require_login() -> None:
-    """Проверяет личность до отрисовки интервью и выполнения действий LLM."""
-    try:
-        prepare_database()
-    except users.StorageUnavailable as error:
-        st.error(str(error))
-        st.stop()
+def current_account() -> dict | None:
+    """Возвращает проверенный аккаунт или гостя; гости не обращаются к БД.
 
+    Ошибка проверки существующего аккаунта не превращает его в гостя неявно.
+    """
     account = None
     subject = None
-    try:
-        if auth_is_configured() and st.user.is_logged_in:
-            google_sub = st.user.get("sub")
-            if not google_sub:
-                st.error("Не удалось определить аккаунт. Выйдите и войдите снова.")
-                st.button("Выйти", on_click=logout)
-                st.stop()
-            subject = f"google:{google_sub}"
-            account = users.google_account(google_sub, st.user.get("name") or "Аккаунт Google", st.user.get("email"))
-        elif st.session_state.get("_auth_local_id"):
-            if time.time() < st.session_state.get("_auth_expires", 0):
-                account = users.local_account(st.session_state["_auth_local_id"])
-                if account:
-                    subject = f"local:{account['id']}"
-            if account is None:
-                st.session_state.clear()
-    except users.StorageUnavailable as error:
-        st.error(str(error))
-        st.stop()
+    st.session_state.pop("_auth_account", None)
+    if auth_is_configured() and st.user.is_logged_in:
+        google_sub = st.user.get("sub")
+        if not google_sub:
+            raise users.StorageUnavailable(
+                "Не удалось определить аккаунт. Выйдите и войдите снова.")
+        prepare_database()
+        subject = f"google:{google_sub}"
+        account = users.google_account(google_sub, st.user.get(
+            "name") or "Аккаунт Google", st.user.get("email"))
+    elif st.session_state.get("_auth_local_id"):
+        if time.time() < st.session_state.get("_auth_expires", 0):
+            prepare_database()
+            account = users.local_account(st.session_state["_auth_local_id"])
+            if account:
+                subject = f"local:{account['id']}"
+        if account is None:
+            st.session_state.clear()
 
     if account is None:
-        # Очищаем данные интервью, не стирая введённые значения форм.
-        for key in ("session", "messages", "report", "pending", "error", "vacancy_draft", "vacancy_error",
-                    "_auth_subject", "_auth_account"):
-            st.session_state.pop(key, None)
-        show_login()
-        st.stop()
+        if st.session_state.get("_auth_subject"):
+            st.session_state.clear()
+        return None
 
     if st.session_state.get("_auth_subject") != subject:
         reset_interview()
         st.session_state["_auth_subject"] = subject
     st.session_state["_auth_account"] = account
+    return account
 
 
-def show_account() -> None:
-    with st.sidebar:
-        account = st.session_state["_auth_account"]
-        st.text(account["name"])
-        if account.get("email"):
-            st.text(account["email"])
-        st.button("Выйти", on_click=logout)
+def show_account_error(error: users.StorageUnavailable) -> None:
+    st.error(str(error))
+    if st.button("Повторить проверку"):
+        st.rerun()
+    st.button("Выйти в гостевой режим", on_click=logout)
+    st.stop()

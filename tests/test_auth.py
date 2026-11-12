@@ -1,5 +1,6 @@
 from unittest.mock import Mock
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from streamlit.testing.v1 import AppTest
@@ -39,29 +40,34 @@ def app(user=None, configured=True):
     return test
 
 
+def open_login(test):
+    test.button(key="open_login").click().run()
+    return test
+
+
 def test_missing_google_configuration_still_allows_local_login():
     test = app(configured=False).run()
     assert not test.exception
-    assert not test.text_area
-    assert {b.label for b in test.button} == {"Войти", "Зарегистрироваться"}
+    assert test.text_area
+    open_login(test)
+    assert "Зарегистрироваться" in {b.label for b in test.button}
+    assert "Войти через Google" not in {b.label for b in test.button}
 
 
-def test_guest_cannot_access_interview_or_pending_action(monkeypatch):
-    start = Mock()
-    monkeypatch.setattr("app.orchestrator.InterviewSession.start", start)
-    test = app()
-    test.session_state["pending"] = ("start", "private vacancy")
-    test.run()
+def test_guest_does_not_access_database(monkeypatch):
+    database = Mock(side_effect=AssertionError("Guest must not use database"))
+    monkeypatch.setattr(auth, "prepare_database", database)
+    test = app().run()
     assert not test.exception
-    assert "Войти через Google" in [b.label for b in test.button]
-    assert not test.text_area
-    start.assert_not_called()
+    assert test.text_area
+    database.assert_not_called()
 
 
 def test_google_login_button_calls_streamlit(monkeypatch):
     login = Mock()
     monkeypatch.setattr(auth.st, "login", login)
     test = app().run()
+    open_login(test)
     next(b for b in test.button if b.label == "Войти через Google").click().run()
     login.assert_called_once_with()
 
@@ -118,6 +124,7 @@ def test_local_registration_and_logout(monkeypatch):
     monkeypatch.setattr(auth.users, "register", register)
     monkeypatch.setattr(auth.users, "local_account", lambda user_id: LOCAL_USER)
     test = app(configured=False).run()
+    open_login(test)
     test.text_input(key="register_username").input("alice")
     test.text_input(key="register_password").input("a long password phrase")
     next(x for x in test.text_input if x.label == "Повторите пароль").input("a long password phrase")
@@ -129,7 +136,7 @@ def test_local_registration_and_logout(monkeypatch):
     test.session_state["messages"] = [("user", "private")]
     next(b for b in test.button if b.label == "Выйти").click().run()
     assert not test.exception
-    assert not test.text_area
+    assert test.text_area
     assert "_auth_local_id" not in test.session_state
 
 
@@ -137,9 +144,10 @@ def test_local_login_and_restart_preserve_session(monkeypatch):
     monkeypatch.setattr(auth.users, "authenticate", Mock(return_value=LOCAL_USER))
     monkeypatch.setattr(auth.users, "local_account", lambda user_id: LOCAL_USER)
     test = app(configured=False).run()
+    open_login(test)
     test.text_input(key="login_username").input("alice")
     test.text_input(key="login_password").input("a long password phrase")
-    next(b for b in test.button if b.label == "Войти").click().run()
+    next(b for b in test.button if b.label == "Войти" and b.key != "open_login").click().run()
     assert not test.exception
     expiry = test.session_state["_auth_expires"]
     test.session_state["pending"] = ("start", "vacancy")
@@ -160,7 +168,8 @@ def test_expired_local_session_blocks_pending_work(monkeypatch):
     test.session_state["pending"] = ("start", "vacancy")
     test.run()
     assert not test.exception
-    assert not test.text_area
+    assert test.text_area
+    assert test.session_state["pending"] is None
     lookup.assert_not_called()
 
 
@@ -168,6 +177,7 @@ def test_password_confirmation_must_match(monkeypatch):
     register = Mock()
     monkeypatch.setattr(auth.users, "register", register)
     test = app(configured=False).run()
+    open_login(test)
     test.text_input(key="register_username").input("alice")
     test.text_input(key="register_password").input("a long password phrase")
     next(b for b in test.button if b.label == "Зарегистрироваться").click().run()
@@ -181,3 +191,113 @@ def test_database_failure_blocks_interview(monkeypatch):
     assert not test.exception
     assert test.error
     assert not test.text_area
+    assert {b.label for b in test.button} == {"Повторить проверку", "Выйти в гостевой режим"}
+
+
+class FakeInterview:
+    def __init__(self):
+        self.plan = SimpleNamespace(topics=["Python"])
+        self.topic_index = 0
+
+    def start(self, vacancy):
+        return "Расскажите о Python"
+
+    def submit_answer(self, answer):
+        return None
+
+    def report(self):
+        return "Тестовый итоговый разбор"
+
+
+def test_guest_completes_interview_and_can_start_another(monkeypatch):
+    monkeypatch.setattr("app.orchestrator.InterviewSession", FakeInterview)
+    monkeypatch.setattr(auth, "prepare_database", Mock(side_effect=AssertionError("No database for guest")))
+    test = app(configured=False).run()
+    test.text_area[0].input("Python developer")
+    next(b for b in test.button if "Начать интервью" in b.label).click().run()
+    assert not test.exception
+    assert test.chat_input
+    test.chat_input[0].set_value("Мой ответ").run()
+    assert not test.exception
+    assert test.session_state["report"] == "Тестовый итоговый разбор"
+    next(b for b in test.button if "Начать заново" in b.label).click().run()
+    assert test.text_area
+    assert test.session_state["report"] is None
+
+
+def test_modal_close_preserves_draft_and_does_not_reopen():
+    test = app().run()
+    test.text_area[0].input("Мой черновик").run()
+    open_login(test)
+    test.session_state["_login_open"] = False  # Browser test covers the dismiss callback.
+    test.run()
+    assert not test.exception
+    assert test.text_area[0].value == "Мой черновик"
+    assert not test.text_input
+    test.run()
+    assert not test.text_input
+
+
+def test_failed_login_and_close_preserve_interview(monkeypatch):
+    monkeypatch.setattr(auth.users, "authenticate", Mock(side_effect=auth.users.AccountError("Неверный пароль")))
+    test = app(configured=False).run()
+    interview = FakeInterview()
+    test.session_state["session"] = interview
+    test.session_state["messages"] = [("user", "Личный ответ")]
+    test.run()
+    open_login(test)
+    assert test.warning
+    test.text_input(key="login_username").input("alice")
+    test.text_input(key="login_password").input("wrong")
+    next(b for b in test.button if b.label == "Войти" and b.key != "open_login").click().run()
+    assert test.error
+    assert test.session_state["messages"] == [("user", "Личный ответ")]
+    test.session_state["_login_open"] = False
+    test.run()
+    assert test.chat_input
+    assert test.session_state["session"] is interview
+
+
+def test_database_error_in_modal_leaves_guest_interview_available(monkeypatch):
+    monkeypatch.setattr(auth, "prepare_database", Mock(side_effect=auth.users.StorageUnavailable("Unavailable")))
+    test = app(configured=False).run()
+    open_login(test)
+    test.text_input(key="login_username").input("alice")
+    test.text_input(key="login_password").input("password")
+    next(b for b in test.button if b.label == "Войти" and b.key != "open_login").click().run()
+    assert test.error
+    test.session_state["_login_open"] = False
+    test.run()
+    assert not test.exception
+    assert test.text_area
+
+
+def test_local_verification_error_can_exit_to_guest(monkeypatch):
+    monkeypatch.setattr(auth.users, "local_account", Mock(side_effect=auth.users.StorageUnavailable("Unavailable")))
+    test = app(configured=False)
+    test.session_state["_auth_local_id"] = "local-id"
+    test.session_state["_auth_expires"] = auth.time.time() + 100
+    test.session_state["messages"] = [("user", "private")]
+    test.run()
+    assert not test.text_area
+    assert not test.sidebar.text
+    next(b for b in test.button if b.label == "Выйти в гостевой режим").click().run()
+    assert test.text_area
+    assert test.session_state["messages"] == []
+
+
+def test_busy_interview_disables_account_actions(monkeypatch):
+    states = []
+    original_button = auth.st.button
+    def button(label, *args, **kwargs):
+        if label in ("Войти", "↺ Начать заново"):
+            states.append((label, kwargs.get("disabled", False)))
+        return original_button(label, *args, **kwargs)
+    monkeypatch.setattr(auth.st, "button", button)
+    monkeypatch.setattr("app.orchestrator.InterviewSession", FakeInterview)
+    test = app().run()
+    states.clear()
+    test.session_state["pending"] = ("start", "vacancy")
+    test.run()
+    assert states[:2] == [("Войти", True), ("↺ Начать заново", True)]
+    assert not test.exception
