@@ -26,6 +26,10 @@ class User(dict):
 def google_identity(monkeypatch):
     # AppTest doesn't run the real browser OIDC callback.
     monkeypatch.setattr(auth.st, "user", User())
+    monkeypatch.setattr(auth, "prepare_database", Mock())
+    monkeypatch.setattr(auth.users, "google_account", lambda subject, name, email: {
+        "id": subject, "name": name, "email": email, "username": None,
+    })
 
 
 def app(user=None, configured=True):
@@ -35,12 +39,11 @@ def app(user=None, configured=True):
     return test
 
 
-def test_missing_configuration_blocks_interview():
+def test_missing_google_configuration_still_allows_local_login():
     test = app(configured=False).run()
     assert not test.exception
-    assert test.info
     assert not test.text_area
-    assert not test.button
+    assert {b.label for b in test.button} == {"Войти", "Зарегистрироваться"}
 
 
 def test_guest_cannot_access_interview_or_pending_action(monkeypatch):
@@ -50,7 +53,7 @@ def test_guest_cannot_access_interview_or_pending_action(monkeypatch):
     test.session_state["pending"] = ("start", "private vacancy")
     test.run()
     assert not test.exception
-    assert [b.label for b in test.button] == ["Войти через Google"]
+    assert "Войти через Google" in [b.label for b in test.button]
     assert not test.text_area
     start.assert_not_called()
 
@@ -59,7 +62,7 @@ def test_google_login_button_calls_streamlit(monkeypatch):
     login = Mock()
     monkeypatch.setattr(auth.st, "login", login)
     test = app().run()
-    test.button[0].click().run()
+    next(b for b in test.button if b.label == "Войти через Google").click().run()
     login.assert_called_once_with()
 
 
@@ -85,7 +88,7 @@ def test_account_switch_clears_previous_interview():
     assert not test.exception
     assert test.session_state["messages"] == []
     assert test.session_state["pending"] is None
-    assert test.session_state["_auth_subject"] == "user-b"
+    assert test.session_state["_auth_subject"] == "google:user-b"
 
 
 def test_missing_subject_blocks_interview():
@@ -100,6 +103,81 @@ def test_logout_clears_session_before_delegating(monkeypatch):
     logout = Mock(side_effect=lambda: pytest.fail("session not cleared") if state else None)
     monkeypatch.setattr(auth.st, "session_state", state)
     monkeypatch.setattr(auth.st, "logout", logout)
+    monkeypatch.setattr(auth, "auth_is_configured", lambda: True)
+    auth.st.user["is_logged_in"] = True
     auth.logout()
     assert state == {}
     logout.assert_called_once_with()
+
+
+LOCAL_USER = {"id": "local-id", "username": "alice", "name": "alice", "email": None}
+
+
+def test_local_registration_and_logout(monkeypatch):
+    register = Mock(return_value=LOCAL_USER)
+    monkeypatch.setattr(auth.users, "register", register)
+    monkeypatch.setattr(auth.users, "local_account", lambda user_id: LOCAL_USER)
+    test = app(configured=False).run()
+    test.text_input(key="register_username").input("alice")
+    test.text_input(key="register_password").input("a long password phrase")
+    next(x for x in test.text_input if x.label == "Повторите пароль").input("a long password phrase")
+    next(b for b in test.button if b.label == "Зарегистрироваться").click().run()
+    assert not test.exception
+    register.assert_called_once_with("alice", "a long password phrase")
+    assert test.text_area
+    assert test.session_state["_auth_subject"] == "local:local-id"
+    test.session_state["messages"] = [("user", "private")]
+    next(b for b in test.button if b.label == "Выйти").click().run()
+    assert not test.exception
+    assert not test.text_area
+    assert "_auth_local_id" not in test.session_state
+
+
+def test_local_login_and_restart_preserve_session(monkeypatch):
+    monkeypatch.setattr(auth.users, "authenticate", Mock(return_value=LOCAL_USER))
+    monkeypatch.setattr(auth.users, "local_account", lambda user_id: LOCAL_USER)
+    test = app(configured=False).run()
+    test.text_input(key="login_username").input("alice")
+    test.text_input(key="login_password").input("a long password phrase")
+    next(b for b in test.button if b.label == "Войти").click().run()
+    assert not test.exception
+    expiry = test.session_state["_auth_expires"]
+    test.session_state["pending"] = ("start", "vacancy")
+    test.session_state["error"] = "retry later"
+    test.run()
+    next(b for b in test.button if "Начать заново" in b.label).click().run()
+    assert not test.exception
+    assert test.text_area
+    assert test.session_state["_auth_expires"] == expiry
+
+
+def test_expired_local_session_blocks_pending_work(monkeypatch):
+    lookup = Mock()
+    monkeypatch.setattr(auth.users, "local_account", lookup)
+    test = app(configured=False)
+    test.session_state["_auth_local_id"] = "local-id"
+    test.session_state["_auth_expires"] = 0
+    test.session_state["pending"] = ("start", "vacancy")
+    test.run()
+    assert not test.exception
+    assert not test.text_area
+    lookup.assert_not_called()
+
+
+def test_password_confirmation_must_match(monkeypatch):
+    register = Mock()
+    monkeypatch.setattr(auth.users, "register", register)
+    test = app(configured=False).run()
+    test.text_input(key="register_username").input("alice")
+    test.text_input(key="register_password").input("a long password phrase")
+    next(b for b in test.button if b.label == "Зарегистрироваться").click().run()
+    assert test.error[0].value == "Пароли не совпадают."
+    register.assert_not_called()
+
+
+def test_database_failure_blocks_interview(monkeypatch):
+    monkeypatch.setattr(auth, "prepare_database", Mock(side_effect=auth.users.StorageUnavailable("Unavailable")))
+    test = app({"is_logged_in": True, "sub": "user-a"}).run()
+    assert not test.exception
+    assert test.error
+    assert not test.text_area

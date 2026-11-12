@@ -3,7 +3,7 @@ from pathlib import Path
 
 import streamlit as st
 
-from app.auth import require_login, show_account
+from app.auth import require_login, reset_interview, show_account
 from app.gigachat_client import LLMError
 from app.link_reader import extract_url
 from app.orchestrator import LINK_UNUSABLE_MESSAGE, InterviewSession
@@ -46,7 +46,7 @@ def show_navbar(busy: bool) -> None:
     with right:
         started = st.session_state.session is not None or st.session_state.pending is not None
         if started and st.button("↺ Начать заново", disabled=busy, use_container_width=True):
-            st.session_state.clear()
+            reset_interview()
             st.rerun()
 
 

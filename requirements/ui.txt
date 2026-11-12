@@ -1,4 +1,6 @@
 # Роль 3: библиотеки для интерфейса и оркестратора (добавлять сюда)
 streamlit[auth]==1.66.0
+argon2-cffi==25.1.0
+psycopg[binary]==3.3.8
 httpx==0.28.1
 beautifulsoup4==4.15.0
