@@ -1,5 +1,6 @@
 """Роль 3. Интерфейс: чат с интервьюером на Streamlit"""
 from pathlib import Path
+from html import escape
 from datetime import timedelta, timezone
 from uuid import uuid4
 
@@ -49,7 +50,8 @@ def show_navbar(busy: bool, account: dict | None) -> None:
         )
     with right:
         if account:
-            st.text(account["name"])
+            with st.container(key="account_name"):
+                st.markdown(f'<p class="account-name">{escape(account["name"])}</p>', unsafe_allow_html=True)
             st.button("Выйти", on_click=logout, disabled=busy, use_container_width=True)
         elif st.button("Войти", key="open_login", disabled=busy, use_container_width=True):
             st.session_state["_login_open"] = True
@@ -172,7 +174,7 @@ def open_interview(interview_id: str) -> None:
 def show_history(busy: bool) -> None:
     labels = {"preparing": "Подготовка", "in_progress": "В процессе",
               "awaiting_report": "Ожидает разбора", "completed": "Завершено"}
-    with st.sidebar:
+    with st.sidebar, st.container(key="interview_history"):
         st.header("История интервью")
         if st.button("Новое интервью", key="new_interview", disabled=busy, use_container_width=True):
             reset_interview()
@@ -183,12 +185,15 @@ def show_history(busy: bool) -> None:
                 st.caption("Здесь появятся ваши интервью.")
             for record in records:
                 date = record["updated_at"].astimezone(timezone(timedelta(hours=3))).strftime("%d.%m.%Y %H:%M")
-                if st.button(record["title"], key=f"interview_{record['id']}", disabled=busy,
-                             type="primary" if record["id"] == st.session_state.interview_id else "secondary",
-                             use_container_width=True):
-                    open_interview(record["id"])
-                    st.rerun()
-                st.caption(f"{date} МСК · {labels[record['status']]}")
+                color = "completed" if record["status"] == "completed" else "active"
+                with st.container(key=f"history_{color}_{record['id']}"):
+                    if st.button(record["title"], key=f"interview_{record['id']}", disabled=busy,
+                                 type="primary" if record["id"] == st.session_state.interview_id else "secondary",
+                                 use_container_width=True):
+                        open_interview(record["id"])
+                        st.rerun()
+                    status = labels[record["status"]].replace(" ", "\u00a0")
+                    st.caption(f"{date}  \n{status}")
         except (StorageUnavailable, interviews.InterviewNotFound) as error:
             st.error(str(error))
             if st.button("Повторить загрузку истории"):

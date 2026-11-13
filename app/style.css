@@ -30,6 +30,18 @@ html, body, .stMarkdown, .stTextArea textarea, .stChatInput textarea {
     font-family: 'Pixelify Sans', 'IBM Plex Mono', monospace !important;
 }
 
+/* Имя аккаунта и история используют ту же типографику, что и кнопки. */
+.st-key-account_name .account-name,
+.st-key-interview_history h2,
+.st-key-interview_history [data-testid="stCaptionContainer"] p {
+    font-family: 'Pixelify Sans', 'IBM Plex Mono', monospace !important;
+    font-weight: 600;
+}
+.st-key-account_name .account-name,
+.st-key-interview_history [data-testid="stCaptionContainer"] p {
+    font-size: 1.05rem;
+}
+
 /* Фон в точку, как миллиметровка */
 [data-testid="stApp"] {
     background-color: var(--paper);
@@ -107,6 +119,21 @@ div[class*="st-key-card"] > * { width: 100% !important; max-width: 100%; box-siz
 .stButton > button:active { transform: translate(4px, 4px); box-shadow: 0 0 0 var(--ink); }
 .stButton > button:disabled { opacity: 0.5; box-shadow: none; }
 
+/* Цвет отражает статус интервью; выбранный диалог выделен обводкой. */
+.st-key-interview_history [class*="st-key-history_completed_"] .stButton > button {
+    background: #D9F2C7 !important;
+}
+.st-key-interview_history [class*="st-key-history_active_"] .stButton > button {
+    background: #FFF0B3 !important;
+}
+.st-key-interview_history [class*="st-key-history_"] .stButton > button[kind="primary"] {
+    outline: 2px solid var(--purple);
+    outline-offset: 3px;
+}
+.st-key-interview_history [class*="st-key-history_"] .stButton > button:hover {
+    border-color: #7651A8 !important;
+}
+
 /* Карточки возможностей, слегка «разбросаны» */
 .features { display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; margin-top: 1.6rem; }
 .feature {
@@ -166,3 +193,93 @@ div[class*="st-key-card"] > * { width: 100% !important; max-width: 100%; box-siz
 
 /* Предупреждения и ошибки тоже в рамке */
 [data-testid="stAlert"] > div { border: 2px solid var(--ink); border-radius: 0; box-shadow: 3px 3px 0 var(--ink); }
+
+/* Авторизация: те же бумага, пиксельные заголовки и жёсткие тени, что у карточек. */
+[data-testid="stDialog"] > div:has(.auth-intro) { border-radius: 0; overflow: visible; }
+[role="dialog"]:has(.auth-intro) {
+    background: var(--paper);
+    color: var(--ink);
+    border: 3px solid var(--ink);
+    border-radius: 0;
+    box-shadow: 8px 8px 0 var(--ink);
+    max-width: calc(100vw - 32px);
+    font-family: 'IBM Plex Mono', ui-monospace, monospace;
+}
+[role="dialog"]:has(.auth-intro) h2 {
+    font-family: 'Pixelify Sans', 'IBM Plex Mono', monospace;
+    font-size: 1.8rem;
+    color: var(--ink);
+}
+.auth-intro { color: var(--muted); font-size: 0.9rem; line-height: 1.6; margin: 0 0 0.5rem; }
+[role="dialog"]:has(.auth-intro) [role="tablist"] {
+    gap: 10px;
+    padding: 0 4px 6px 0;
+}
+[role="dialog"]:has(.auth-intro) [role="tab"] {
+    flex: 1;
+    justify-content: center;
+    height: auto;
+    min-height: 44px;
+    padding: 8px 12px;
+    border: 2px solid var(--ink);
+    border-radius: 0;
+    background: var(--card);
+    color: var(--ink);
+    box-shadow: 3px 3px 0 var(--ink);
+}
+[role="dialog"]:has(.auth-intro) [role="tab"] p {
+    font-family: 'Pixelify Sans', 'IBM Plex Mono', monospace;
+    font-size: 1.1rem;
+    font-weight: 600;
+}
+[role="dialog"]:has(.auth-intro) [role="tab"][aria-selected="true"] { background: var(--purple); }
+[role="dialog"]:has(.auth-intro) [role="tab"]:hover { background: var(--yellow); }
+[role="dialog"]:has(.auth-intro) [data-baseweb="tab-highlight"],
+[role="dialog"]:has(.auth-intro) [data-baseweb="tab-border"] { display: none; }
+[role="dialog"]:has(.auth-intro) [data-testid="stForm"] {
+    background: var(--card);
+    border: 2px solid var(--ink);
+    border-radius: 0;
+    box-shadow: 4px 4px 0 var(--ink);
+    padding: 1.1rem;
+}
+[role="dialog"]:has(.auth-intro) [data-testid="stWidgetLabel"] p { color: var(--ink); font-weight: 500; }
+[role="dialog"]:has(.auth-intro) [data-testid="stTextInputRootElement"] {
+    background: var(--paper);
+    border: 2px solid var(--ink);
+    border-radius: 0;
+}
+[role="dialog"]:has(.auth-intro) [data-testid="stTextInputRootElement"]:focus-within {
+    border-color: var(--ink);
+    box-shadow: 3px 3px 0 var(--purple);
+    outline: 2px solid var(--purple);
+    outline-offset: 1px;
+}
+[role="dialog"]:has(.auth-intro) input { background: transparent; color: var(--ink); }
+[role="dialog"]:has(.auth-intro) input { font-family: 'IBM Plex Mono', ui-monospace, monospace; }
+[role="dialog"]:has(.auth-intro) [data-testid="stFormSubmitButton"] button {
+    min-height: 44px;
+    border: 2px solid var(--ink);
+    border-radius: 0;
+    background: var(--yellow);
+    color: var(--ink);
+    box-shadow: var(--shadow);
+    transition: transform 0.05s, box-shadow 0.05s;
+}
+[role="dialog"]:has(.auth-intro) [data-testid="stFormSubmitButton"] button p {
+    font-family: 'Pixelify Sans', 'IBM Plex Mono', monospace;
+    font-size: 1.1rem;
+    font-weight: 600;
+}
+[role="dialog"]:has(.auth-intro) [data-testid="stFormSubmitButton"] button:hover { background: var(--purple); }
+[role="dialog"]:has(.auth-intro) [data-testid="stFormSubmitButton"] button:active {
+    transform: translate(4px, 4px);
+    box-shadow: none;
+}
+[role="dialog"]:has(.auth-intro) button:focus-visible { outline: 3px solid var(--purple); outline-offset: 3px; }
+.auth-divider { display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: 0.85rem; }
+.auth-divider::before, .auth-divider::after { content: ''; flex: 1; border-top: 2px solid var(--ink); }
+@media (max-width: 480px) {
+    [role="dialog"]:has(.auth-intro) [data-testid="stForm"] { padding: 0.75rem; }
+    [role="dialog"]:has(.auth-intro) [role="tab"] { padding: 8px; }
+}

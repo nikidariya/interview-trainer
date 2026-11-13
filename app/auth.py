@@ -60,6 +60,10 @@ def clear_login_fields() -> None:
 
 @st.dialog("Вход в аккаунт", on_dismiss=clear_login_fields)
 def show_login() -> None:
+    st.markdown(
+        '<p class="auth-intro">Сохраняйте интервью и возвращайтесь к тренировкам в своём аккаунте.</p>',
+        unsafe_allow_html=True,
+    )
     if st.session_state.get("session") is not None or st.session_state.get("pending") is not None:
         st.warning("После входа или регистрации текущее интервью начнётся заново. "
                    "Переход в Google также может сбросить интервью.")
@@ -70,7 +74,7 @@ def show_login() -> None:
                 "Логин", max_chars=32, key="login_username")
             password = st.text_input(
                 "Пароль", type="password", max_chars=128, key="login_password")
-            submitted = st.form_submit_button("Войти", type="primary")
+            submitted = st.form_submit_button("Войти", type="primary", use_container_width=True)
         if submitted:
             try:
                 prepare_database()
@@ -81,14 +85,12 @@ def show_login() -> None:
                 _start_local_session(account)
     with register_tab:
         with st.form("password_register", clear_on_submit=True):
-            username = st.text_input("Логин", max_chars=32, key="register_username",
-                                     help="3–32 символа: латинские буквы, цифры, _, . или -; регистр не учитывается.")
-            password = st.text_input("Пароль", type="password", max_chars=128, key="register_password",
-                                     help="От 8 до 128 символов. Можно использовать длинную фразу.")
+            username = st.text_input("Логин", max_chars=32, key="register_username")
+            password = st.text_input("Пароль", type="password", max_chars=128, key="register_password")
             confirmation = st.text_input(
                 "Повторите пароль", type="password", max_chars=128, key="register_confirmation")
             submitted = st.form_submit_button(
-                "Зарегистрироваться", type="primary")
+                "Зарегистрироваться", type="primary", use_container_width=True)
         if submitted:
             if password != confirmation:
                 st.error("Пароли не совпадают.")
@@ -101,7 +103,8 @@ def show_login() -> None:
                 else:
                     _start_local_session(account)
     if auth_is_configured():
-        st.button("Войти через Google", key="google_login", on_click=st.login)
+        st.markdown('<div class="auth-divider">или</div>', unsafe_allow_html=True)
+        st.button("Войти через Google", key="google_login", on_click=st.login, use_container_width=True)
 
 
 def current_account() -> dict | None:
