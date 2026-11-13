@@ -1,4 +1,6 @@
 """Роль 3. Ход интервью: решает, какой агент вызывается следующим """
+from dataclasses import asdict
+
 from app import link_reader
 from app.agents import analyst, coach, evaluator, interviewer
 from app.schemas import AnswerScore, InterviewPlan, Turn
@@ -39,6 +41,28 @@ class InterviewSession:
         self.topic_index = 0
         self._current_question = ""
         self._clarified = False  # задавали ли уже уточнение по текущей теме
+
+    def to_dict(self) -> dict:
+        """JSON-совместимое состояние; восстановление не вызывает агентов."""
+        return {
+            "plan": asdict(self.plan) if self.plan else None,
+            "history": [asdict(turn) for turn in self.history],
+            "scores": [asdict(score) for score in self.scores],
+            "topic_index": self.topic_index,
+            "current_question": self._current_question,
+            "clarified": self._clarified,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "InterviewSession":
+        session = cls()
+        session.plan = InterviewPlan(**data["plan"]) if data["plan"] else None
+        session.history = [Turn(**turn) for turn in data["history"]]
+        session.scores = [AnswerScore(**score) for score in data["scores"]]
+        session.topic_index = data["topic_index"]
+        session._current_question = data["current_question"]
+        session._clarified = data["clarified"]
+        return session
 
     def start(self, vacancy_text: str) -> str:
         """Принимает текст вакансии, возвращает первый вопрос"""

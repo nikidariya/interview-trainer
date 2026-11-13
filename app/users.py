@@ -54,6 +54,25 @@ def initialize_database() -> None:
                         OR (username IS NULL AND password_hash IS NULL AND google_sub IS NOT NULL))
                 )
             """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS interviews (
+                    id UUID PRIMARY KEY,
+                    user_id UUID NOT NULL REFERENCES users(id),
+                    title TEXT NOT NULL,
+                    vacancy TEXT NOT NULL,
+                    status TEXT NOT NULL CHECK (status IN
+                        ('preparing', 'in_progress', 'awaiting_report', 'completed')),
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    version INTEGER NOT NULL DEFAULT 1,
+                    last_write_id UUID NOT NULL,
+                    snapshot JSONB NOT NULL
+                )
+            """)
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS interviews_user_updated_idx
+                ON interviews (user_id, updated_at DESC, id DESC)
+            """)
     except psycopg.Error:
         raise StorageUnavailable("Хранилище аккаунтов временно недоступно. Попробуйте позже.") from None
 

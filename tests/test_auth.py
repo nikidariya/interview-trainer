@@ -28,6 +28,7 @@ def google_identity(monkeypatch):
     # AppTest doesn't run the real browser OIDC callback.
     monkeypatch.setattr(auth.st, "user", User())
     monkeypatch.setattr(auth, "prepare_database", Mock())
+    monkeypatch.setattr("app.interviews.list_interviews", Mock(return_value=[]))
     monkeypatch.setattr(auth.users, "google_account", lambda subject, name, email: {
         "id": subject, "name": name, "email": email, "username": None,
     })
@@ -79,7 +80,7 @@ def test_signed_in_user_can_access_form_and_restart():
     test.session_state["pending"] = ("start", "vacancy")
     test.session_state["error"] = "retry later"
     test.run()
-    next(b for b in test.button if "Начать заново" in b.label).click().run()
+    test.button(key="new_interview").click().run()
     assert not test.exception
     assert test.text_area
     assert auth.st.user.is_logged_in
@@ -153,7 +154,7 @@ def test_local_login_and_restart_preserve_session(monkeypatch):
     test.session_state["pending"] = ("start", "vacancy")
     test.session_state["error"] = "retry later"
     test.run()
-    next(b for b in test.button if "Начать заново" in b.label).click().run()
+    test.button(key="new_interview").click().run()
     assert not test.exception
     assert test.text_area
     assert test.session_state["_auth_expires"] == expiry

@@ -1,8 +1,11 @@
 """Роль 3. Интерфейс: чат с интервьюером на Streamlit"""
 from pathlib import Path
+from datetime import timedelta, timezone
+from uuid import uuid4
 
 import streamlit as st
 
+from app import interviews
 from app.auth import current_account, logout, reset_interview, show_account_error, show_login
 from app.users import StorageUnavailable
 from app.gigachat_client import LLMError
@@ -51,7 +54,7 @@ def show_navbar(busy: bool, account: dict | None) -> None:
         elif st.button("Войти", key="open_login", disabled=busy, use_container_width=True):
             st.session_state["_login_open"] = True
         started = st.session_state.session is not None or st.session_state.pending is not None
-        if started and st.button("↺ Начать заново", disabled=busy, use_container_width=True):
+        if not account and started and st.button("↺ Начать заново", disabled=busy, use_container_width=True):
             reset_interview()
             st.rerun()
     if not account and not busy and st.session_state.get("_login_open"):
@@ -93,9 +96,120 @@ def init_state() -> None:
     defaults = {
         "session": None, "messages": [], "report": None, "pending": None, "error": None,
         "vacancy_error": None, "vacancy_draft": "",
+        "interview_id": None, "interview_version": None, "write_id": None,
+        "save_dirty": False, "save_error": None, "save_conflict": False,
+        "resume_required": False,
     }
     for key, value in defaults.items():
         st.session_state.setdefault(key, value)
+
+
+def queue_save() -> None:
+    if st.session_state.get("_auth_account"):
+        state = st.session_state
+        if state.interview_id is None:
+            state.interview_id = str(uuid4())
+        state.write_id = str(uuid4())
+        state.save_dirty = True
+
+
+def persist_interview() -> None:
+    state = st.session_state
+    if not state.save_dirty or state.save_error:
+        return
+    session = state.session
+    snapshot = {
+        "schema_version": 1,
+        "session": session.to_dict() if session else None,
+        "messages": state.messages,
+        "report": state.report,
+        "pending": state.pending,
+        "error": state.error,
+        "vacancy_error": state.vacancy_error,
+    }
+    status = ("completed" if state.report is not None else
+              "awaiting_report" if state.pending and state.pending[0] == "report" else
+              "in_progress" if session else "preparing")
+    title = f"{session.plan.role} · {session.plan.level}" if session else "Новое интервью"
+    try:
+        record = interviews.save_interview(
+            user_id=state._auth_account["id"], interview_id=state.interview_id,
+            version=state.interview_version, write_id=state.write_id,
+            title=title, vacancy=state.vacancy_draft, status=status, snapshot=snapshot,
+        )
+    except (StorageUnavailable, interviews.InterviewConflict, interviews.InterviewNotFound) as error:
+        state.save_error = str(error)
+        state.save_conflict = isinstance(error, (interviews.InterviewConflict, interviews.InterviewNotFound))
+    else:
+        state.interview_version = record["version"]
+        state.save_dirty = False
+        state.save_error = None
+        state.save_conflict = False
+
+
+def open_interview(interview_id: str) -> None:
+    # Загрузку выполняем до сброса: ошибка чтения не уничтожает текущий диалог.
+    record = interviews.load_interview(st.session_state._auth_account["id"], interview_id)
+    snapshot = record["snapshot"]
+    if snapshot.get("schema_version") != 1:
+        raise StorageUnavailable("Эта версия интервью пока не поддерживается.")
+    session = InterviewSession.from_dict(snapshot["session"]) if snapshot["session"] else None
+    reset_interview()
+    init_state()
+    state = st.session_state
+    state.interview_id = record["id"]
+    state.interview_version = record["version"]
+    state.vacancy_draft = record["vacancy"]
+    state.session = session
+    state.messages = [tuple(message) for message in snapshot["messages"]]
+    state.report = snapshot["report"]
+    state.pending = tuple(snapshot["pending"]) if snapshot["pending"] else None
+    state.error = snapshot.get("error")
+    state.vacancy_error = snapshot.get("vacancy_error")
+    state.resume_required = state.pending is not None
+
+
+def show_history(busy: bool) -> None:
+    labels = {"preparing": "Подготовка", "in_progress": "В процессе",
+              "awaiting_report": "Ожидает разбора", "completed": "Завершено"}
+    with st.sidebar:
+        st.header("История интервью")
+        if st.button("Новое интервью", key="new_interview", disabled=busy, use_container_width=True):
+            reset_interview()
+            st.rerun()
+        try:
+            records = interviews.list_interviews(st.session_state._auth_account["id"])
+            if not records:
+                st.caption("Здесь появятся ваши интервью.")
+            for record in records:
+                date = record["updated_at"].astimezone(timezone(timedelta(hours=3))).strftime("%d.%m.%Y %H:%M")
+                if st.button(record["title"], key=f"interview_{record['id']}", disabled=busy,
+                             type="primary" if record["id"] == st.session_state.interview_id else "secondary",
+                             use_container_width=True):
+                    open_interview(record["id"])
+                    st.rerun()
+                st.caption(f"{date} МСК · {labels[record['status']]}")
+        except (StorageUnavailable, interviews.InterviewNotFound) as error:
+            st.error(str(error))
+            if st.button("Повторить загрузку истории"):
+                st.rerun()
+
+
+def show_save_error() -> None:
+    state = st.session_state
+    st.error(state.save_error)
+    if state.save_conflict:
+        st.caption("Загрузка актуальной версии заменит локальные несохранённые изменения.")
+        if st.button("Загрузить актуальную версию"):
+            try:
+                open_interview(state.interview_id)
+            except (StorageUnavailable, interviews.InterviewNotFound) as error:
+                st.error(str(error))
+            else:
+                st.rerun()
+    elif st.button("Повторить сохранение"):
+        state.save_error = None
+        st.rerun()
 
 
 def show_vacancy_form() -> None:
@@ -135,6 +249,7 @@ def show_vacancy_form() -> None:
                 st.session_state.vacancy_error = None
                 st.session_state.vacancy_draft = vacancy
                 st.session_state.pending = ("start", vacancy)
+                queue_save()
                 st.rerun()
         if message:
             st.warning(message)
@@ -165,9 +280,10 @@ def show_chat() -> None:
             st.markdown(state.report)
     elif session is not None:
         # пока агент работает, поле заблокировано, второй запрос отправить нельзя
-        if answer := st.chat_input("Ваш ответ", disabled=state.pending is not None):
+        if answer := st.chat_input("Ваш ответ", disabled=state.pending is not None or state.save_dirty):
             state.messages.append(("user", answer))
             state.pending = ("answer", answer)
+            queue_save()
             st.rerun()
 
 
@@ -204,6 +320,7 @@ def run_pending() -> None:
         else:
             state.pending = None
             state.vacancy_error = str(error)
+    queue_save()
     st.rerun()
 
 
@@ -223,16 +340,33 @@ try:
 except StorageUnavailable as error:
     show_account_error(error)
 init_state()
+persist_interview()
 
-busy = st.session_state.pending is not None and not st.session_state.error
+busy = (st.session_state.save_dirty or
+        (st.session_state.pending is not None and not st.session_state.error
+         and not st.session_state.resume_required))
 show_navbar(busy, account)
+if account:
+    show_history(busy)
+
+if st.session_state.save_error:
+    if st.session_state.session is not None:
+        show_chat()
+    show_save_error()
+    st.stop()
 
 if st.session_state.session is None and st.session_state.pending is None:
     show_vacancy_form()
 else:
     show_chat()
     if st.session_state.pending is not None:
-        if st.session_state.error:
+        if st.session_state.resume_required:
+            st.info("В интервью осталось незавершённое действие.")
+            if st.button("Продолжить интервью"):
+                st.session_state.resume_required = False
+                st.session_state.error = None
+                st.rerun()
+        elif st.session_state.error:
             show_error_with_retry()
         else:
             run_pending()
