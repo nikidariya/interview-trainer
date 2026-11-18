@@ -26,7 +26,8 @@
 html, body, .stMarkdown, .stTextArea textarea, .stChatInput textarea {
     font-family: 'IBM Plex Mono', ui-monospace, monospace;
 }
-.pixel, .brand, .hero h1, .card-title, .feature b, .stButton > button p {
+.pixel, .brand, .hero h1, .card-title, .feature b, .stButton > button p,
+.st-key-download_report_pdf button p {
     font-family: 'Pixelify Sans', 'IBM Plex Mono', monospace !important;
 }
 
@@ -93,7 +94,12 @@ div[class*="st-key-card"] {
 /* Streamlit задаёт детям ширину всего блока в пикселях, из-за padding они вылезали за рамку */
 div[class*="st-key-card"] { box-sizing: border-box; }
 div[class*="st-key-card"] > * { width: 100% !important; max-width: 100%; box-sizing: border-box; }
-.card-title { display: flex; align-items: center; gap: 10px; font-size: 1.35rem; font-weight: 700; color: var(--ink); }
+.card-title { display: flex; align-items: center; gap: 10px; }
+.card-title, .st-key-download_report_pdf button p {
+    font-size: 1.35rem;
+    font-weight: 700;
+    color: var(--ink);
+}
 .hint { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 0.85rem; }
 
 /* Поле вакансии */

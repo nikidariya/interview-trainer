@@ -201,7 +201,7 @@ def test_database_failure_blocks_interview(monkeypatch):
 
 class FakeInterview:
     def __init__(self):
-        self.plan = SimpleNamespace(topics=["Python"])
+        self.plan = SimpleNamespace(role="Python developer", level="Junior", topics=["Python"])
         self.topic_index = 0
 
     def start(self, vacancy):

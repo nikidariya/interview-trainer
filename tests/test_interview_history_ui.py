@@ -62,6 +62,7 @@ def test_history_resume_new_interview_and_report(history):
     test = signed_in()
     assert not history  # Пустая форма не создаёт интервью.
     first = start(test)
+    assert not test.get("download_button")
     test.chat_input[0].set_value("Первый ответ").run()
     assert history[first]["snapshot"]["session"]["topic_index"] == 1
     click(test, "Новое интервью")
@@ -78,10 +79,12 @@ def test_history_resume_new_interview_and_report(history):
     test.chat_input[0].set_value("Второй ответ").run()
     assert not test.exception
     assert history[first]["status"] == "completed"
+    assert test.get("download_button")[0].label == "Скачать разбор"
     test = signed_in()
     test.button(key=f"interview_{first}").click().run()
     assert test.session_state["report"] == "Итоговый разбор"
     assert not test.chat_input
+    assert test.get("download_button")[0].label == "Скачать разбор"
     # В другом аккаунте чужая история не появляется.
     other = app({"is_logged_in": True, "sub": "user-b"}).run()
     assert not [b for b in other.sidebar.button if b.key.startswith("interview_")]

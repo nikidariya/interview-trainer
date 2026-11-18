@@ -3,6 +3,7 @@ from pathlib import Path
 from html import escape
 from datetime import timedelta, timezone
 from uuid import uuid4
+import re
 
 import streamlit as st
 
@@ -12,6 +13,7 @@ from app.users import StorageUnavailable
 from app.gigachat_client import LLMError
 from app.link_reader import extract_url
 from app.orchestrator import LINK_UNUSABLE_MESSAGE, InterviewSession
+from app.report_pdf import build_report_pdf
 
 MAX_VACANCY_CHARS = 6000
 
@@ -115,6 +117,10 @@ def queue_save() -> None:
         state.save_dirty = True
 
 
+def interview_title(session) -> str:
+    return f"{session.plan.role} · {session.plan.level}" if session else "Новое интервью"
+
+
 def persist_interview() -> None:
     state = st.session_state
     if not state.save_dirty or state.save_error:
@@ -132,7 +138,7 @@ def persist_interview() -> None:
     status = ("completed" if state.report is not None else
               "awaiting_report" if state.pending and state.pending[0] == "report" else
               "in_progress" if session else "preparing")
-    title = f"{session.plan.role} · {session.plan.level}" if session else "Новое интервью"
+    title = interview_title(session)
     try:
         record = interviews.save_interview(
             user_id=state._auth_account["id"], interview_id=state.interview_id,
@@ -280,8 +286,22 @@ def show_chat() -> None:
 
     if state.report:
         with st.container(key="card_report"):
-            st.markdown(f'<div class="card-title">{icon("chart")} Итоговый разбор</div>',
-                        unsafe_allow_html=True)
+            plan = session.plan if session is not None else None
+            filename_title = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", interview_title(session))
+            filename_title = filename_title[:100].rstrip(" .")
+            with st.container(horizontal=True, vertical_alignment="center", gap="medium"):
+                st.markdown(f'<div class="card-title">{icon("chart")} Итоговый разбор</div>',
+                            unsafe_allow_html=True, width="content")
+                st.download_button(
+                    "Скачать разбор",
+                    icon=":material/download:",
+                    data=build_report_pdf(state.report, plan.role if plan else "",
+                                          plan.level if plan else ""),
+                    file_name=f"interview-report-{filename_title}.pdf",
+                    mime="application/pdf",
+                    on_click="ignore",
+                    key="download_report_pdf",
+                )
             st.markdown(state.report)
     elif session is not None:
         # пока агент работает, поле заблокировано, второй запрос отправить нельзя

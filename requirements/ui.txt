@@ -4,3 +4,5 @@ argon2-cffi==25.1.0
 psycopg[binary]==3.3.8
 httpx==0.28.1
 beautifulsoup4==4.15.0
+reportlab==4.4.10
+markdown-it-py==4.0.0
