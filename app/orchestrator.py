@@ -1,9 +1,34 @@
 """Роль 3. Ход интервью: решает, какой агент вызывается следующим """
+from dataclasses import asdict
+
+from app import link_reader
 from app.agents import analyst, coach, evaluator, interviewer
 from app.schemas import AnswerScore, InterviewPlan, Turn
 
 # Если конкретика ниже этого порога, интервьюер задаёт один уточняющий вопрос
 CLARIFY_THRESHOLD = 3
+
+
+LINK_UNUSABLE_MESSAGE = (
+    "Не удалось найти вакансию по этой ссылке: сайт недоступен или на странице нет описания вакансии. "
+    "Вставьте текст вакансии вручную"
+)
+
+
+def _with_link_content(vacancy_text: str) -> str:
+    """Если в тексте есть ссылка на вакансию, добавляет содержимое страницы. Иначе возвращает текст как есть"""
+    url = link_reader.extract_url(vacancy_text)
+    if url is None:
+        return vacancy_text
+    user_text = vacancy_text.replace(url, " ").strip()
+    page_text = link_reader.fetch_page_text(url)
+    if page_text and analyst.is_relevant_page(page_text, user_text):
+        if not user_text:
+            return page_text
+        return f"Текст пользователя:\n{user_text}\n\nСодержимое страницы вакансии:\n{page_text}"
+    if not user_text:
+        raise ValueError(LINK_UNUSABLE_MESSAGE)
+    return user_text
 
 
 class InterviewSession:
@@ -17,9 +42,31 @@ class InterviewSession:
         self._current_question = ""
         self._clarified = False  # задавали ли уже уточнение по текущей теме
 
+    def to_dict(self) -> dict:
+        """JSON-совместимое состояние; восстановление не вызывает агентов."""
+        return {
+            "plan": asdict(self.plan) if self.plan else None,
+            "history": [asdict(turn) for turn in self.history],
+            "scores": [asdict(score) for score in self.scores],
+            "topic_index": self.topic_index,
+            "current_question": self._current_question,
+            "clarified": self._clarified,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "InterviewSession":
+        session = cls()
+        session.plan = InterviewPlan(**data["plan"]) if data["plan"] else None
+        session.history = [Turn(**turn) for turn in data["history"]]
+        session.scores = [AnswerScore(**score) for score in data["scores"]]
+        session.topic_index = data["topic_index"]
+        session._current_question = data["current_question"]
+        session._clarified = data["clarified"]
+        return session
+
     def start(self, vacancy_text: str) -> str:
         """Принимает текст вакансии, возвращает первый вопрос"""
-        plan = analyst.build_plan(vacancy_text)
+        plan = analyst.build_plan(_with_link_content(vacancy_text))
         question = interviewer.next_question(plan, self.history, self.topic_index)
         # Состояние меняем только после того, как оба агента ответили без ошибок
         self.plan = plan

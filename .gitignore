@@ -1,7 +1,9 @@
 .env
+.streamlit/secrets.toml
 __pycache__/
 *.pyc
 .venv/
 .pytest_cache/
 .ipynb_checkpoints/
 logs/
+eval/review.md

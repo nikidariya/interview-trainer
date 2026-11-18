@@ -1,10 +1,19 @@
 """Роль 3. Интерфейс: чат с интервьюером на Streamlit"""
 from pathlib import Path
+from html import escape
+from datetime import timedelta, timezone
+from uuid import uuid4
+import re
 
 import streamlit as st
 
+from app import interviews
+from app.auth import current_account, logout, reset_interview, show_account_error, show_login
+from app.users import StorageUnavailable
 from app.gigachat_client import LLMError
-from app.orchestrator import InterviewSession
+from app.link_reader import extract_url
+from app.orchestrator import LINK_UNUSABLE_MESSAGE, InterviewSession
+from app.report_pdf import build_report_pdf
 
 MAX_VACANCY_CHARS = 6000
 
@@ -31,10 +40,10 @@ def load_css() -> None:
     st.markdown(f"<style>{css}</style>", unsafe_allow_html=True)
 
 
-def show_navbar(busy: bool) -> None:
+def show_navbar(busy: bool, account: dict | None) -> None:
     """Шапка: логотип слева, «Начать заново» справа (во время интервью)"""
     with st.container(key="navbar"):
-        left, right = st.columns([4, 1], vertical_alignment="center")
+        left, right = st.columns([3, 2], vertical_alignment="center")
     with left:
         st.markdown(
             f'<div class="brand-row"><div class="logo">{icon("brain", 24)}</div>'
@@ -42,10 +51,18 @@ def show_navbar(busy: bool) -> None:
             unsafe_allow_html=True,
         )
     with right:
+        if account:
+            with st.container(key="account_name"):
+                st.markdown(f'<p class="account-name">{escape(account["name"])}</p>', unsafe_allow_html=True)
+            st.button("Выйти", on_click=logout, disabled=busy, use_container_width=True)
+        elif st.button("Войти", key="open_login", disabled=busy, use_container_width=True):
+            st.session_state["_login_open"] = True
         started = st.session_state.session is not None or st.session_state.pending is not None
-        if started and st.button("↺ Начать заново", disabled=busy, use_container_width=True):
-            st.session_state.clear()
+        if not account and started and st.button("↺ Начать заново", disabled=busy, use_container_width=True):
+            reset_interview()
             st.rerun()
+    if not account and not busy and st.session_state.get("_login_open"):
+        show_login()
 
 
 # пиксельная звёздочка-«искра» для декора
@@ -83,9 +100,127 @@ def init_state() -> None:
     defaults = {
         "session": None, "messages": [], "report": None, "pending": None, "error": None,
         "vacancy_error": None, "vacancy_draft": "",
+        "interview_id": None, "interview_version": None, "write_id": None,
+        "save_dirty": False, "save_error": None, "save_conflict": False,
+        "resume_required": False,
     }
     for key, value in defaults.items():
         st.session_state.setdefault(key, value)
+
+
+def queue_save() -> None:
+    if st.session_state.get("_auth_account"):
+        state = st.session_state
+        if state.interview_id is None:
+            state.interview_id = str(uuid4())
+        state.write_id = str(uuid4())
+        state.save_dirty = True
+
+
+def interview_title(session) -> str:
+    return f"{session.plan.role} · {session.plan.level}" if session else "Новое интервью"
+
+
+def persist_interview() -> None:
+    state = st.session_state
+    if not state.save_dirty or state.save_error:
+        return
+    session = state.session
+    snapshot = {
+        "schema_version": 1,
+        "session": session.to_dict() if session else None,
+        "messages": state.messages,
+        "report": state.report,
+        "pending": state.pending,
+        "error": state.error,
+        "vacancy_error": state.vacancy_error,
+    }
+    status = ("completed" if state.report is not None else
+              "awaiting_report" if state.pending and state.pending[0] == "report" else
+              "in_progress" if session else "preparing")
+    title = interview_title(session)
+    try:
+        record = interviews.save_interview(
+            user_id=state._auth_account["id"], interview_id=state.interview_id,
+            version=state.interview_version, write_id=state.write_id,
+            title=title, vacancy=state.vacancy_draft, status=status, snapshot=snapshot,
+        )
+    except (StorageUnavailable, interviews.InterviewConflict, interviews.InterviewNotFound) as error:
+        state.save_error = str(error)
+        state.save_conflict = isinstance(error, (interviews.InterviewConflict, interviews.InterviewNotFound))
+    else:
+        state.interview_version = record["version"]
+        state.save_dirty = False
+        state.save_error = None
+        state.save_conflict = False
+
+
+def open_interview(interview_id: str) -> None:
+    # Загрузку выполняем до сброса: ошибка чтения не уничтожает текущий диалог.
+    record = interviews.load_interview(st.session_state._auth_account["id"], interview_id)
+    snapshot = record["snapshot"]
+    if snapshot.get("schema_version") != 1:
+        raise StorageUnavailable("Эта версия интервью пока не поддерживается.")
+    session = InterviewSession.from_dict(snapshot["session"]) if snapshot["session"] else None
+    reset_interview()
+    init_state()
+    state = st.session_state
+    state.interview_id = record["id"]
+    state.interview_version = record["version"]
+    state.vacancy_draft = record["vacancy"]
+    state.session = session
+    state.messages = [tuple(message) for message in snapshot["messages"]]
+    state.report = snapshot["report"]
+    state.pending = tuple(snapshot["pending"]) if snapshot["pending"] else None
+    state.error = snapshot.get("error")
+    state.vacancy_error = snapshot.get("vacancy_error")
+    state.resume_required = state.pending is not None
+
+
+def show_history(busy: bool) -> None:
+    labels = {"preparing": "Подготовка", "in_progress": "В процессе",
+              "awaiting_report": "Ожидает разбора", "completed": "Завершено"}
+    with st.sidebar, st.container(key="interview_history"):
+        st.header("История интервью")
+        if st.button("Новое интервью", key="new_interview", disabled=busy, use_container_width=True):
+            reset_interview()
+            st.rerun()
+        try:
+            records = interviews.list_interviews(st.session_state._auth_account["id"])
+            if not records:
+                st.caption("Здесь появятся ваши интервью.")
+            for record in records:
+                date = record["updated_at"].astimezone(timezone(timedelta(hours=3))).strftime("%d.%m.%Y %H:%M")
+                color = "completed" if record["status"] == "completed" else "active"
+                with st.container(key=f"history_{color}_{record['id']}"):
+                    if st.button(record["title"], key=f"interview_{record['id']}", disabled=busy,
+                                 type="primary" if record["id"] == st.session_state.interview_id else "secondary",
+                                 use_container_width=True):
+                        open_interview(record["id"])
+                        st.rerun()
+                    status = labels[record["status"]].replace(" ", "\u00a0")
+                    st.caption(f"{date}  \n{status}")
+        except (StorageUnavailable, interviews.InterviewNotFound) as error:
+            st.error(str(error))
+            if st.button("Повторить загрузку истории"):
+                st.rerun()
+
+
+def show_save_error() -> None:
+    state = st.session_state
+    st.error(state.save_error)
+    if state.save_conflict:
+        st.caption("Загрузка актуальной версии заменит локальные несохранённые изменения.")
+        if st.button("Загрузить актуальную версию"):
+            try:
+                open_interview(state.interview_id)
+            except (StorageUnavailable, interviews.InterviewNotFound) as error:
+                st.error(str(error))
+            else:
+                st.rerun()
+    elif st.button("Повторить сохранение"):
+        state.save_error = None
+        st.rerun()
 
 
 def show_vacancy_form() -> None:
@@ -94,20 +229,23 @@ def show_vacancy_form() -> None:
     with st.container(key="card_vacancy"):
         st.markdown(f'<div class="card-title">{icon("briefcase")} Вакансия для собеседования</div>',
                     unsafe_allow_html=True)
-        if st.session_state.vacancy_error:
+        if st.session_state.vacancy_error == LINK_UNUSABLE_MESSAGE:
+            st.warning(LINK_UNUSABLE_MESSAGE)
+        elif st.session_state.vacancy_error:
             st.warning(
                 "Не получилось составить план интервью по этому тексту. "
                 "Проверьте, что это описание вакансии, и попробуйте ещё раз"
             )
         vacancy = st.text_area(
             "Текст вакансии", value=st.session_state.vacancy_draft, height=200,
+            key="vacancy_input", on_change=save_vacancy_draft,
             label_visibility="collapsed",
-            placeholder="Вставьте сюда текст вакансии: описание компании, требования, обязанности и технологии…",
+            placeholder="Вставьте сюда текст вакансии и/или ссылку на неё: описание компании, требования, обязанности и технологии…",
         )
         hint_col, button_col = st.columns([3, 1.3], vertical_alignment="center")
         with hint_col:
             st.markdown(f'<div class="hint">{icon("shield", 15, "#57534E")} '
-                        f'Вопросы подбираются под вакансию',
+                        f'Вопросы подбираются под вакансию. Можно прислать ссылку',
                         unsafe_allow_html=True)
         with button_col:
             clicked = st.button("Начать интервью →", type="primary", use_container_width=True)
@@ -115,17 +253,22 @@ def show_vacancy_form() -> None:
         if clicked:
             vacancy = vacancy.strip()
             if not vacancy:
-                message = "Вставьте текст вакансии"
+                message = "Вставьте текст вакансии или ссылку на неё"
             elif len(vacancy) > MAX_VACANCY_CHARS:
                 message = f"Текст слишком длинный: {len(vacancy)} символов, максимум {MAX_VACANCY_CHARS}"
             else:
                 st.session_state.vacancy_error = None
                 st.session_state.vacancy_draft = vacancy
                 st.session_state.pending = ("start", vacancy)
+                queue_save()
                 st.rerun()
         if message:
             st.warning(message)
     show_features()
+
+
+def save_vacancy_draft() -> None:
+    st.session_state.vacancy_draft = st.session_state.vacancy_input
 
 
 def show_chat() -> None:
@@ -143,14 +286,29 @@ def show_chat() -> None:
 
     if state.report:
         with st.container(key="card_report"):
-            st.markdown(f'<div class="card-title">{icon("chart")} Итоговый разбор</div>',
-                        unsafe_allow_html=True)
+            plan = session.plan if session is not None else None
+            filename_title = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", interview_title(session))
+            filename_title = filename_title[:100].rstrip(" .")
+            with st.container(horizontal=True, vertical_alignment="center", gap="medium"):
+                st.markdown(f'<div class="card-title">{icon("chart")} Итоговый разбор</div>',
+                            unsafe_allow_html=True, width="content")
+                st.download_button(
+                    "Скачать разбор",
+                    icon=":material/download:",
+                    data=build_report_pdf(state.report, plan.role if plan else "",
+                                          plan.level if plan else ""),
+                    file_name=f"interview-report-{filename_title}.pdf",
+                    mime="application/pdf",
+                    on_click="ignore",
+                    key="download_report_pdf",
+                )
             st.markdown(state.report)
     elif session is not None:
         # пока агент работает, поле заблокировано, второй запрос отправить нельзя
-        if answer := st.chat_input("Ваш ответ", disabled=state.pending is not None):
+        if answer := st.chat_input("Ваш ответ", disabled=state.pending is not None or state.save_dirty):
             state.messages.append(("user", answer))
             state.pending = ("answer", answer)
+            queue_save()
             st.rerun()
 
 
@@ -160,7 +318,8 @@ def run_pending() -> None:
     kind, payload = state.pending
     try:
         if kind == "start":
-            with st.spinner("Разбираю вакансию и готовлю первый вопрос..."):
+            action = "Читаю ссылку и разбираю вакансию" if extract_url(payload) else "Разбираю вакансию"
+            with st.spinner(f"{action} и готовлю первый вопрос..."):
                 session = InterviewSession()
                 first_question = session.start(payload)
             state.session = session
@@ -186,6 +345,7 @@ def run_pending() -> None:
         else:
             state.pending = None
             state.vacancy_error = str(error)
+    queue_save()
     st.rerun()
 
 
@@ -200,17 +360,38 @@ def show_error_with_retry() -> None:
 
 st.set_page_config(page_title="InterviewAI — тренажёр собеседований", page_icon="🎯", layout="centered")
 load_css()
+try:
+    account = current_account()
+except StorageUnavailable as error:
+    show_account_error(error)
 init_state()
+persist_interview()
 
-busy = st.session_state.pending is not None and not st.session_state.error
-show_navbar(busy)
+busy = (st.session_state.save_dirty or
+        (st.session_state.pending is not None and not st.session_state.error
+         and not st.session_state.resume_required))
+show_navbar(busy, account)
+if account:
+    show_history(busy)
+
+if st.session_state.save_error:
+    if st.session_state.session is not None:
+        show_chat()
+    show_save_error()
+    st.stop()
 
 if st.session_state.session is None and st.session_state.pending is None:
     show_vacancy_form()
 else:
     show_chat()
     if st.session_state.pending is not None:
-        if st.session_state.error:
+        if st.session_state.resume_required:
+            st.info("В интервью осталось незавершённое действие.")
+            if st.button("Продолжить интервью"):
+                st.session_state.resume_required = False
+                st.session_state.error = None
+                st.rerun()
+        elif st.session_state.error:
             show_error_with_retry()
         else:
             run_pending()
