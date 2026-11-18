@@ -279,6 +279,37 @@ div[class*="st-key-card"] > * { width: 100% !important; max-width: 100%; box-siz
 [role="dialog"]:has(.auth-intro) button:focus-visible { outline: 3px solid var(--purple); outline-offset: 3px; }
 .auth-divider { display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: 0.85rem; }
 .auth-divider::before, .auth-divider::after { content: ''; flex: 1; border-top: 2px solid var(--ink); }
+.st-key-username_hint_field, .st-key-password_hint_field { position: relative; }
+:is(.st-key-username_hint_field, .st-key-password_hint_field) [data-testid="stElementContainer"]:has(.credential-hint) {
+    position: relative;
+    width: 100%;
+    z-index: 10;
+    display: none;
+    pointer-events: none;
+}
+:is(.st-key-username_hint_field, .st-key-password_hint_field):focus-within [data-testid="stElementContainer"]:has(.credential-hint) {
+    display: block;
+}
+.credential-hint {
+    padding: 10px 12px;
+    background: var(--paper);
+    color: var(--ink);
+    border: 2px solid var(--ink);
+    box-shadow: 3px 3px 0 var(--purple);
+    font-size: 0.85rem;
+    line-height: 1.5;
+}
+@media (min-width: 1000px) {
+    [role="dialog"]:has(.auth-intro),
+    [role="dialog"]:has(.auth-intro) [data-testid="stTabs"],
+    [role="dialog"]:has(.auth-intro) [role="tabpanel"] { overflow: visible; }
+    :is(.st-key-username_hint_field, .st-key-password_hint_field) [data-testid="stElementContainer"]:has(.credential-hint) {
+        position: absolute;
+        top: 0;
+        right: calc(100% + 64px);
+        width: min(280px, calc(50vw - 300px));
+    }
+}
 @media (max-width: 480px) {
     [role="dialog"]:has(.auth-intro) [data-testid="stForm"] { padding: 0.75rem; }
     [role="dialog"]:has(.auth-intro) [role="tab"] { padding: 8px; }

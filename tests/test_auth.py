@@ -183,6 +183,10 @@ def test_password_confirmation_must_match(monkeypatch):
     test.text_input(key="register_password").input("a long password phrase")
     next(b for b in test.button if b.label == "Зарегистрироваться").click().run()
     assert test.error[0].value == "Пароли не совпадают."
+    assert not test.exception
+    for key in ("register_username", "register_password", "register_confirmation"):
+        assert test.text_input(key=key).value == ""
+        assert test.session_state[key] == ""
     register.assert_not_called()
 
 
@@ -253,6 +257,10 @@ def test_failed_login_and_close_preserve_interview(monkeypatch):
     next(b for b in test.button if b.label == "Войти" and b.key != "open_login").click().run()
     assert test.error
     assert test.session_state["messages"] == [("user", "Личный ответ")]
+    assert not test.exception
+    for key, value in (("login_username", "alice"), ("login_password", "wrong")):
+        assert test.text_input(key=key).value == value
+        assert test.session_state[key] == value
     test.session_state["_login_open"] = False
     test.run()
     assert test.chat_input

@@ -10,7 +10,7 @@ from psycopg import sql
 from app import users
 
 pytestmark = pytest.mark.skipif(os.getenv("RUN_POSTGRES_TESTS") != "1", reason="Set RUN_POSTGRES_TESTS=1 with PostgreSQL running")
-PASSWORD = "a sufficiently long password"
+PASSWORD = "SufficientlyLongPassword123"
 
 
 @pytest.fixture
@@ -36,12 +36,17 @@ def database(monkeypatch):
 
 def test_registration_login_and_persistence(database):
     user = users.register(" Alice ", PASSWORD)
-    assert user["username"] == "alice"
+    assert user["username"] == "Alice"
     assert "password_hash" not in user
-    assert users.authenticate("ALICE", PASSWORD)["id"] == user["id"]
+    assert users.authenticate("Alice", PASSWORD)["id"] == user["id"]
+    for username in ("ALICE", "alice"):
+        with pytest.raises(users.AccountError):
+            users.authenticate(username, PASSWORD)
+    with pytest.raises(users.AccountError):
+        users.authenticate("Alice", PASSWORD.upper())
     assert users.local_account(user["id"]) == user
     users.initialize_database()
-    assert users.authenticate("alice", PASSWORD)["id"] == user["id"]
+    assert users.authenticate("Alice", PASSWORD)["id"] == user["id"]
     with users.connect() as conn:
         row = conn.execute("SELECT password_hash FROM users").fetchone()
         assert row["password_hash"].startswith("$argon2id$")

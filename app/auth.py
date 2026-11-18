@@ -54,12 +54,25 @@ def _start_local_session(account: dict) -> None:
 
 def clear_login_fields() -> None:
     st.session_state["_login_open"] = False
+    st.session_state.pop("_login_form_error", None)
     for key in ("login_username", "login_password", "register_username", "register_password", "register_confirmation"):
         st.session_state.pop(key, None)
 
 
+def _reject_credentials(form: str, error: str) -> None:
+    # Clear widget state before rendering the fields on the next run.
+    st.session_state["_login_form_error"] = (form, error)
+    st.rerun()
+
+
 @st.dialog("Вход в аккаунт", on_dismiss=clear_login_fields)
 def show_login() -> None:
+    form_error = st.session_state.pop("_login_form_error", None)
+    if form_error:
+        prefix = form_error[0] + "_"
+        for key in list(st.session_state):
+            if key.startswith(prefix):
+                st.session_state[key] = ""
     st.markdown(
         '<p class="auth-intro">Сохраняйте интервью и возвращайтесь к тренировкам в своём аккаунте.</p>',
         unsafe_allow_html=True,
@@ -69,12 +82,13 @@ def show_login() -> None:
                    "Переход в Google также может сбросить интервью.")
     login_tab, register_tab = st.tabs(["Вход", "Регистрация"])
     with login_tab:
-        with st.form("password_login", clear_on_submit=True):
+        with st.form("password_login", clear_on_submit=False):
             username = st.text_input(
                 "Логин", max_chars=32, key="login_username")
             password = st.text_input(
                 "Пароль", type="password", max_chars=128, key="login_password")
-            submitted = st.form_submit_button("Войти", type="primary", use_container_width=True)
+            submitted = st.form_submit_button(
+                "Войти", type="primary", use_container_width=True)
         if submitted:
             try:
                 prepare_database()
@@ -85,26 +99,44 @@ def show_login() -> None:
                 _start_local_session(account)
     with register_tab:
         with st.form("password_register", clear_on_submit=True):
-            username = st.text_input("Логин", max_chars=32, key="register_username")
-            password = st.text_input("Пароль", type="password", max_chars=128, key="register_password")
+            with st.container(key="username_hint_field"):
+                username = st.text_input(
+                    "Логин", max_chars=32, key="register_username")
+                st.markdown(
+                    '<div class="credential-hint" role="tooltip">От 3 до 32 символов: '
+                    'только латинские буквы A–Z, a–z и цифры 0–9. </div>',
+                    unsafe_allow_html=True,
+                )
+            with st.container(key="password_hint_field"):
+                password = st.text_input(
+                    "Пароль", type="password", max_chars=128, key="register_password")
+                st.markdown(
+                    '<div class="credential-hint" role="tooltip">От 8 до 128 символов: '
+                    'только латинские буквы A–Z, a–z и цифры 0–9. </div>',
+                    unsafe_allow_html=True,
+                )
             confirmation = st.text_input(
                 "Повторите пароль", type="password", max_chars=128, key="register_confirmation")
             submitted = st.form_submit_button(
                 "Зарегистрироваться", type="primary", use_container_width=True)
+        if form_error and form_error[0] == "register":
+            st.error(form_error[1])
         if submitted:
             if password != confirmation:
-                st.error("Пароли не совпадают.")
+                _reject_credentials("register", "Пароли не совпадают.")
             else:
                 try:
                     prepare_database()
                     account = users.register(username, password)
                 except (ValueError, users.StorageUnavailable) as error:
-                    st.error(str(error))
+                    _reject_credentials("register", str(error))
                 else:
                     _start_local_session(account)
     if auth_is_configured():
-        st.markdown('<div class="auth-divider">или</div>', unsafe_allow_html=True)
-        st.button("Войти через Google", key="google_login", on_click=st.login, use_container_width=True)
+        st.markdown('<div class="auth-divider">или</div>',
+                    unsafe_allow_html=True)
+        st.button("Войти через Google", key="google_login",
+                  on_click=st.login, use_container_width=True)
 
 
 def current_account() -> dict | None:

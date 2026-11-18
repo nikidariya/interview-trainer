@@ -101,10 +101,10 @@ def register(username: str, password: str) -> dict:
 
 def authenticate(username: str, password: str) -> dict:
     message = "Неверный логин или пароль, либо вход временно ограничен. Попробуйте позже."
-    try:
-        username = normalize_username(username)
-    except ValueError:
-        raise AccountError(message) from None
+    # Existing accounts may contain characters allowed by older registration rules.
+    username = username.strip()
+    if not 3 <= len(username) <= 32:
+        raise AccountError(message)
     result = None
     try:
         with connect() as conn:
@@ -116,7 +116,7 @@ def authenticate(username: str, password: str) -> dict:
                 verify_password(_dummy_hash, password)
             elif not row["locked"]:
                 if verify_password(row["password_hash"], password):
-                    updated_hash = (hash_password(password) if hasher.check_needs_rehash(row["password_hash"])
+                    updated_hash = (hasher.hash(password) if hasher.check_needs_rehash(row["password_hash"])
                                     else row["password_hash"])
                     conn.execute(
                         """UPDATE users SET failed_attempts = 0, locked_until = NULL,
