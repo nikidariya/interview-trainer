@@ -305,7 +305,7 @@ def show_chat() -> None:
             st.markdown(state.report)
     elif session is not None:
         # пока агент работает, поле заблокировано, второй запрос отправить нельзя
-        if answer := st.chat_input("Ваш ответ", disabled=state.pending is not None or state.save_dirty):
+        if answer := st.chat_input("Ваш ответ или уточняющий вопрос", disabled=state.pending is not None or state.save_dirty):
             state.messages.append(("user", answer))
             state.pending = ("answer", answer)
             queue_save()
@@ -326,7 +326,7 @@ def run_pending() -> None:
             state.messages.append(("assistant", first_question))
             state.pending = None
         elif kind == "answer":
-            with st.spinner("Оцениваю ответ и готовлю следующий вопрос..."):
+            with st.spinner("Готовлю ответ интервьюера…"):
                 next_question = state.session.submit_answer(payload)
             if next_question is None:
                 state.pending = ("report", None)

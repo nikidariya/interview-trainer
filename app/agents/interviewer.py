@@ -4,7 +4,40 @@ import re
 from app import gigachat_client
 from app.parsing import parse_key_values
 from app.prompts import load_prompt
-from app.schemas import InterviewPlan, Turn
+from app.schemas import Clarification, InterviewPlan, Turn
+
+
+_INTENT_FALLBACK = (
+    "Уточните, пожалуйста: вам нужно пояснение формулировки текущего вопроса "
+    "или это ваш ответ на него?"
+)
+
+
+def respond_to_message(question: str, message: str,
+                       clarifications: list[Clarification]) -> str | None:
+    """None означает ответ для оценки; строка — пояснение без оценки."""
+    messages = [{"role": "assistant", "content": question}]
+    for item in clarifications:
+        messages.extend([
+            {"role": "user", "content": item.request},
+            {"role": "assistant", "content": item.response},
+        ])
+    messages.append({"role": "user", "content": message})
+    response = gigachat_client.chat(
+        agent="interviewer",
+        system_prompt=load_prompt("interviewer_clarification"),
+        messages=messages,
+        temperature=0.1,
+    )
+    if not isinstance(response, str):
+        return _INTENT_FALLBACK
+    values = parse_key_values(response.replace("**", ""), ["Тип", "Сообщение"])
+    kind = values.get("Тип", "").strip().casefold()
+    if kind == "ответ":
+        return None
+    if kind == "уточнение" and values.get("Сообщение", "").strip():
+        return values["Сообщение"].strip()
+    return _INTENT_FALLBACK
 
 
 _CONTEXT_TEMPLATE = (
