@@ -53,8 +53,10 @@ def show_navbar(busy: bool, account: dict | None) -> None:
     with right:
         if account:
             with st.container(key="account_name"):
-                st.markdown(f'<p class="account-name">{escape(account["name"])}</p>', unsafe_allow_html=True)
-            st.button("Выйти", on_click=logout, disabled=busy, use_container_width=True)
+                st.markdown(
+                    f'<p class="account-name">{escape(account["name"])}</p>', unsafe_allow_html=True)
+            st.button("Выйти", on_click=logout,
+                      disabled=busy, use_container_width=True)
         elif st.button("Войти", key="open_login", disabled=busy, use_container_width=True):
             st.session_state["_login_open"] = True
         started = st.session_state.session is not None or st.session_state.pending is not None
@@ -102,7 +104,7 @@ def init_state() -> None:
         "vacancy_error": None, "vacancy_draft": "",
         "interview_id": None, "interview_version": None, "write_id": None,
         "save_dirty": False, "save_error": None, "save_conflict": False,
-        "resume_required": False,
+        "resume_required": False, "history_dialog": None,
     }
     for key, value in defaults.items():
         st.session_state.setdefault(key, value)
@@ -147,7 +149,8 @@ def persist_interview() -> None:
         )
     except (StorageUnavailable, interviews.InterviewConflict, interviews.InterviewNotFound) as error:
         state.save_error = str(error)
-        state.save_conflict = isinstance(error, (interviews.InterviewConflict, interviews.InterviewNotFound))
+        state.save_conflict = isinstance(
+            error, (interviews.InterviewConflict, interviews.InterviewNotFound))
     else:
         state.interview_version = record["version"]
         state.save_dirty = False
@@ -157,11 +160,13 @@ def persist_interview() -> None:
 
 def open_interview(interview_id: str) -> None:
     # Загрузку выполняем до сброса: ошибка чтения не уничтожает текущий диалог.
-    record = interviews.load_interview(st.session_state._auth_account["id"], interview_id)
+    record = interviews.load_interview(
+        st.session_state._auth_account["id"], interview_id)
     snapshot = record["snapshot"]
     if snapshot.get("schema_version") != 1:
         raise StorageUnavailable("Эта версия интервью пока не поддерживается.")
-    session = InterviewSession.from_dict(snapshot["session"]) if snapshot["session"] else None
+    session = InterviewSession.from_dict(
+        snapshot["session"]) if snapshot["session"] else None
     reset_interview()
     init_state()
     state = st.session_state
@@ -177,6 +182,51 @@ def open_interview(interview_id: str) -> None:
     state.resume_required = state.pending is not None
 
 
+def close_history_dialog() -> None:
+    st.session_state.history_dialog = None
+
+
+@st.dialog("Переименовать интервью", on_dismiss=close_history_dialog)
+def rename_dialog(record: dict) -> None:
+    with st.container(key="rename_dialog"), st.form(f"rename_form_{record['id']}"):
+        title = st.text_input(
+            "Название", value=record["title"], max_chars=interviews.MAX_TITLE_CHARS)
+        submitted = st.form_submit_button("Сохранить название", type="primary")
+    if submitted:
+        try:
+            interviews.rename_interview(st.session_state._auth_account["id"], record["id"],
+                                        title, record["version"])
+            if record["id"] == st.session_state.interview_id:
+                open_interview(record["id"])
+        except (ValueError, StorageUnavailable, interviews.InterviewConflict, interviews.InterviewNotFound) as error:
+            st.error(str(error))
+        else:
+            close_history_dialog()
+            st.rerun()
+
+
+@st.dialog("Удалить интервью?", on_dismiss=close_history_dialog)
+def delete_dialog(record: dict) -> None:
+    with st.container(key="delete_dialog"):
+        st.write(f'«{record["title"]}»')
+        st.caption("Диалог и итоговый разбор нельзя будет восстановить")
+        cancel, confirm = st.columns(2)
+    if cancel.button("Отмена", use_container_width=True, wrap=True):
+        close_history_dialog()
+        st.rerun()
+    if confirm.button("Удалить интервью", type="primary", use_container_width=True, wrap=True):
+        try:
+            interviews.delete_interview(
+                st.session_state._auth_account["id"], record["id"], record["version"])
+        except (StorageUnavailable, interviews.InterviewConflict) as error:
+            st.error(str(error))
+        else:
+            if record["id"] == st.session_state.interview_id:
+                reset_interview()
+            close_history_dialog()
+            st.rerun()
+
+
 def show_history(busy: bool) -> None:
     labels = {"preparing": "Подготовка", "in_progress": "В процессе",
               "awaiting_report": "Ожидает разбора", "completed": "Завершено"}
@@ -186,31 +236,50 @@ def show_history(busy: bool) -> None:
             reset_interview()
             st.rerun()
         try:
-            records = interviews.list_interviews(st.session_state._auth_account["id"])
+            records = interviews.list_interviews(
+                st.session_state._auth_account["id"])
             if not records:
                 st.caption("Здесь появятся ваши интервью.")
             for record in records:
-                date = record["updated_at"].astimezone(timezone(timedelta(hours=3))).strftime("%d.%m.%Y %H:%M")
+                date = record["updated_at"].astimezone(
+                    timezone(timedelta(hours=3))).strftime("%d.%m.%Y %H:%M")
                 color = "completed" if record["status"] == "completed" else "active"
                 with st.container(key=f"history_{color}_{record['id']}"):
-                    if st.button(record["title"], key=f"interview_{record['id']}", disabled=busy,
-                                 type="primary" if record["id"] == st.session_state.interview_id else "secondary",
-                                 use_container_width=True):
-                        open_interview(record["id"])
-                        st.rerun()
+                    with st.container(key=f"history_row_{record['id']}"):
+                        if st.button(record["title"], key=f"interview_{record['id']}", disabled=busy,
+                                     type="primary" if record["id"] == st.session_state.interview_id else "secondary",
+                                     use_container_width=True):
+                            open_interview(record["id"])
+                            st.rerun()
+                        with st.container(key=f"history_actions_{record['id']}"):
+                            st.button("⋯", key=f"history_more_{record['id']}", disabled=busy,
+                                      help="Действия с интервью")
+                            with st.container(key=f"history_menu_{record['id']}"):
+                                if st.button("Переименовать", icon=":material/edit:",
+                                             key=f"rename_{record['id']}", disabled=busy, use_container_width=True):
+                                    st.session_state.history_dialog = (
+                                        "rename", record)
+                                if st.button("Удалить", icon=":material/delete:",
+                                             key=f"delete_{record['id']}", disabled=busy, use_container_width=True):
+                                    st.session_state.history_dialog = (
+                                        "delete", record)
                     status = labels[record["status"]].replace(" ", "\u00a0")
                     st.caption(f"{date}  \n{status}")
         except (StorageUnavailable, interviews.InterviewNotFound) as error:
             st.error(str(error))
             if st.button("Повторить загрузку истории"):
                 st.rerun()
+    if st.session_state.history_dialog and not busy:
+        action, record = st.session_state.history_dialog
+        (rename_dialog if action == "rename" else delete_dialog)(record)
 
 
 def show_save_error() -> None:
     state = st.session_state
     st.error(state.save_error)
     if state.save_conflict:
-        st.caption("Загрузка актуальной версии заменит локальные несохранённые изменения.")
+        st.caption(
+            "Загрузка актуальной версии заменит локальные несохранённые изменения.")
         if st.button("Загрузить актуальную версию"):
             try:
                 open_interview(state.interview_id)
@@ -242,13 +311,15 @@ def show_vacancy_form() -> None:
             label_visibility="collapsed",
             placeholder="Вставьте сюда текст вакансии и/или ссылку на неё: описание компании, требования, обязанности и технологии…",
         )
-        hint_col, button_col = st.columns([3, 1.3], vertical_alignment="center")
+        hint_col, button_col = st.columns(
+            [3, 1.3], vertical_alignment="center")
         with hint_col:
             st.markdown(f'<div class="hint">{icon("shield", 15, "#57534E")} '
                         f'Вопросы подбираются под вакансию. Можно прислать ссылку',
                         unsafe_allow_html=True)
         with button_col:
-            clicked = st.button("Начать интервью →", type="primary", use_container_width=True)
+            clicked = st.button("Начать интервью →",
+                                type="primary", use_container_width=True)
         message = None
         if clicked:
             vacancy = vacancy.strip()
@@ -287,7 +358,8 @@ def show_chat() -> None:
     if state.report:
         with st.container(key="card_report"):
             plan = session.plan if session is not None else None
-            filename_title = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", interview_title(session))
+            filename_title = re.sub(
+                r'[<>:"/\\|?*\x00-\x1f]', "_", interview_title(session))
             filename_title = filename_title[:100].rstrip(" .")
             with st.container(horizontal=True, vertical_alignment="center", gap="medium"):
                 st.markdown(f'<div class="card-title">{icon("chart")} Итоговый разбор</div>',
@@ -318,7 +390,8 @@ def run_pending() -> None:
     kind, payload = state.pending
     try:
         if kind == "start":
-            action = "Читаю ссылку и разбираю вакансию" if extract_url(payload) else "Разбираю вакансию"
+            action = "Читаю ссылку и разбираю вакансию" if extract_url(
+                payload) else "Разбираю вакансию"
             with st.spinner(f"{action} и готовлю первый вопрос..."):
                 session = InterviewSession()
                 first_question = session.start(payload)
@@ -338,7 +411,8 @@ def run_pending() -> None:
                 state.report = state.session.report()
             state.pending = None
     except LLMError as error:
-        state.error = str(error)  # pending не сбрасываем, чтобы можно было повторить
+        # pending не сбрасываем, чтобы можно было повторить
+        state.error = str(error)
     except ValueError as error:
         if kind != "start":
             state.error = str(error)
@@ -358,7 +432,8 @@ def show_error_with_retry() -> None:
         st.rerun()
 
 
-st.set_page_config(page_title="InterviewAI — тренажёр собеседований", page_icon="🎯", layout="centered")
+st.set_page_config(page_title="InterviewAI — тренажёр собеседований",
+                   page_icon="🎯", layout="centered")
 load_css()
 try:
     account = current_account()
