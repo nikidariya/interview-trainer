@@ -5,6 +5,7 @@ from app.schemas import InterviewPlan, AnswerScore, Turn
 
 
 def test_session_roundtrip_and_continuation(monkeypatch):
+    monkeypatch.setattr("app.orchestrator.interviewer.respond_to_message", lambda *args: None)
     session = InterviewSession()
     session.plan = InterviewPlan("Python developer", "Junior", ["Python", "SQL"])
     session.history = [Turn("Первый вопрос", "Первый ответ")]

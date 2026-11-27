@@ -13,6 +13,52 @@ class InterviewNotFound(RuntimeError):
     pass
 
 
+MAX_TITLE_CHARS = 120
+
+
+def rename_interview(user_id: str, interview_id: str, title: str, version: int) -> dict:
+    title = title.strip()
+    if not title or len(title) > MAX_TITLE_CHARS:
+        raise ValueError(f"Введите название от 1 до {MAX_TITLE_CHARS} символов.")
+    try:
+        with users.connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM interviews WHERE id = %s AND user_id = %s FOR UPDATE",
+                (interview_id, user_id),
+            ).fetchone()
+            if row is None:
+                raise InterviewNotFound("Интервью не найдено.")
+            # Повтор после потери подтверждения записи безопасен.
+            if row["title"] == title and row["custom_title"]:
+                return _record(row)
+            if row["version"] != version:
+                raise InterviewConflict("Интервью изменилось в другой вкладке. Откройте меню заново.")
+            row = conn.execute(
+                """UPDATE interviews SET title = %s, custom_title = TRUE, version = version + 1,
+                   updated_at = now() WHERE id = %s AND user_id = %s RETURNING *""",
+                (title, interview_id, user_id),
+            ).fetchone()
+            return _record(row)
+    except psycopg.Error:
+        raise users.StorageUnavailable("Не удалось переименовать интервью. Попробуйте ещё раз.") from None
+
+
+def delete_interview(user_id: str, interview_id: str, version: int) -> None:
+    try:
+        with users.connect() as conn:
+            row = conn.execute(
+                "SELECT version FROM interviews WHERE id = %s AND user_id = %s FOR UPDATE",
+                (interview_id, user_id),
+            ).fetchone()
+            if row is None:
+                return  # Уже удалено или не принадлежит пользователю.
+            if row["version"] != version:
+                raise InterviewConflict("Интервью изменилось в другой вкладке. Откройте меню заново.")
+            conn.execute("DELETE FROM interviews WHERE id = %s AND user_id = %s", (interview_id, user_id))
+    except psycopg.Error:
+        raise users.StorageUnavailable("Не удалось удалить интервью. Попробуйте ещё раз.") from None
+
+
 def _record(row) -> dict:
     return {**row, "id": str(row["id"])}
 
@@ -21,7 +67,7 @@ def list_interviews(user_id: str) -> list[dict]:
     try:
         with users.connect() as conn:
             rows = conn.execute(
-                """SELECT id, title, status, created_at, updated_at FROM interviews
+                """SELECT id, title, status, created_at, updated_at, version FROM interviews
                    WHERE user_id = %s ORDER BY updated_at DESC, id DESC""", (user_id,),
             ).fetchall()
             return [_record(row) for row in rows]
@@ -71,7 +117,8 @@ def save_interview(*, user_id: str, interview_id: str, version: int | None,
             if row["version"] != version:
                 raise InterviewConflict("Интервью изменилось в другой вкладке. Загрузите актуальную версию.")
             row = conn.execute(
-                """UPDATE interviews SET title = %s, vacancy = %s, status = %s,
+                """UPDATE interviews SET title = CASE WHEN custom_title THEN title ELSE %s END,
+                   vacancy = %s, status = %s,
                    snapshot = %s, last_write_id = %s, version = version + 1, updated_at = now()
                    WHERE id = %s AND user_id = %s RETURNING *""",
                 (title, vacancy, status, Jsonb(snapshot), write_id, interview_id, user_id),

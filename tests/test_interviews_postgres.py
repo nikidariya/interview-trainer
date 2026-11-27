@@ -8,7 +8,7 @@ import pytest
 from app import interviews, users
 from app.orchestrator import InterviewSession
 from app.schemas import InterviewPlan, Turn, AnswerScore
-from test_users_postgres import database
+from test_users_postgres import database, PASSWORD
 
 pytestmark = pytest.mark.skipif(os.getenv("RUN_POSTGRES_TESTS") != "1", reason="Requires PostgreSQL")
 
@@ -22,7 +22,7 @@ def create(user_id, **overrides):
 
 
 def test_persistence_order_and_idempotent_retry(database):
-    user = users.register("alice", "long password")
+    user = users.register("alice", PASSWORD)
     first, args = create(user["id"])
     second, _ = create(user["id"])
     assert [r["id"] for r in interviews.list_interviews(user["id"])] == [second["id"], first["id"]]
@@ -41,7 +41,7 @@ def test_persistence_order_and_idempotent_retry(database):
 
 
 def test_ownership_for_reads_creates_and_updates(database):
-    owner = users.register("alice", "long password")
+    owner = users.register("alice", PASSWORD)
     other = users.google_account("google-bob", "Bob", None)
     record, args = create(owner["id"])
     assert interviews.list_interviews(other["id"]) == []
@@ -73,7 +73,7 @@ def test_full_snapshot_survives_database_roundtrip(database):
 
 
 def test_concurrent_updates_cannot_overwrite(database):
-    user = users.register("alice", "long password")
+    user = users.register("alice", PASSWORD)
     record, args = create(user["id"])
 
     def update(_):
@@ -95,7 +95,49 @@ def test_storage_errors_hide_connection_details(monkeypatch):
     monkeypatch.setattr(users, "connect", fail)
     for operation in (lambda: interviews.list_interviews(str(uuid4())),
                       lambda: interviews.load_interview(str(uuid4()), str(uuid4())),
-                      lambda: create(str(uuid4()))):
+                      lambda: create(str(uuid4())),
+                      lambda: interviews.rename_interview(str(uuid4()), str(uuid4()), "Название", 1),
+                      lambda: interviews.delete_interview(str(uuid4()), str(uuid4()), 1)):
         with pytest.raises(users.StorageUnavailable) as error:
             operation()
         assert "secret" not in str(error.value)
+
+
+def test_rename_survives_autosave_and_schema_initialization(database):
+    user = users.register("alice", PASSWORD)
+    record, args = create(user["id"])
+    renamed = interviews.rename_interview(user["id"], record["id"], "  Моё интервью  ", 1)
+    assert renamed["title"] == "Моё интервью"
+    assert renamed["version"] == 2
+    assert renamed["snapshot"] == record["snapshot"]
+    assert interviews.rename_interview(user["id"], record["id"], "Моё интервью", 1)["version"] == 2
+    with pytest.raises(interviews.InterviewConflict):
+        interviews.save_interview(**{**args, "version": 1, "write_id": str(uuid4())})
+    saved = interviews.save_interview(**{**args, "version": 2, "write_id": str(uuid4()), "title": "Auto title"})
+    assert saved["title"] == "Моё интервью"
+    users.initialize_database()
+    assert interviews.list_interviews(user["id"])[0]["title"] == "Моё интервью"
+    assert interviews.list_interviews(user["id"])[0]["version"] == 3
+
+
+def test_rename_delete_ownership_conflicts_and_deleted_save(database):
+    owner = users.register("alice", PASSWORD)
+    other = users.register("bob", PASSWORD)
+    record, args = create(owner["id"])
+    with pytest.raises(interviews.InterviewNotFound):
+        interviews.rename_interview(other["id"], record["id"], "Чужое", 1)
+    interviews.delete_interview(other["id"], record["id"], 1)
+    assert interviews.load_interview(owner["id"], record["id"])["title"] == record["title"]
+    for title in ("", "   ", "x" * 121):
+        with pytest.raises(ValueError):
+            interviews.rename_interview(owner["id"], record["id"], title, 1)
+    interviews.rename_interview(owner["id"], record["id"], "Новое", 1)
+    with pytest.raises(interviews.InterviewConflict):
+        interviews.rename_interview(owner["id"], record["id"], "Другое", 1)
+    with pytest.raises(interviews.InterviewConflict):
+        interviews.delete_interview(owner["id"], record["id"], 1)
+    interviews.delete_interview(owner["id"], record["id"], 2)
+    interviews.delete_interview(owner["id"], record["id"], 2)
+    assert interviews.list_interviews(owner["id"]) == []
+    with pytest.raises(interviews.InterviewNotFound):
+        interviews.save_interview(**{**args, "version": 2, "write_id": str(uuid4())})

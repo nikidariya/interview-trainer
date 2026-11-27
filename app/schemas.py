@@ -19,6 +19,12 @@ class Turn:
 
 
 @dataclass
+class Clarification:
+    request: str
+    response: str
+
+
+@dataclass
 class AnswerScore:
     scores: dict[str, int] = field(default_factory=dict)
     comment: str = ""

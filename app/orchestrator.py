@@ -3,7 +3,7 @@ from dataclasses import asdict
 
 from app import link_reader
 from app.agents import analyst, coach, evaluator, interviewer
-from app.schemas import AnswerScore, InterviewPlan, Turn
+from app.schemas import AnswerScore, Clarification, InterviewPlan, Turn
 
 # Если конкретика ниже этого порога, интервьюер задаёт один уточняющий вопрос
 CLARIFY_THRESHOLD = 3
@@ -38,6 +38,7 @@ class InterviewSession:
         self.plan: InterviewPlan | None = None
         self.history: list[Turn] = []
         self.scores: list[AnswerScore] = []
+        self.clarifications: list[Clarification] = []
         self.topic_index = 0
         self._current_question = ""
         self._clarified = False  # задавали ли уже уточнение по текущей теме
@@ -48,6 +49,7 @@ class InterviewSession:
             "plan": asdict(self.plan) if self.plan else None,
             "history": [asdict(turn) for turn in self.history],
             "scores": [asdict(score) for score in self.scores],
+            "clarifications": [asdict(item) for item in self.clarifications],
             "topic_index": self.topic_index,
             "current_question": self._current_question,
             "clarified": self._clarified,
@@ -59,6 +61,7 @@ class InterviewSession:
         session.plan = InterviewPlan(**data["plan"]) if data["plan"] else None
         session.history = [Turn(**turn) for turn in data["history"]]
         session.scores = [AnswerScore(**score) for score in data["scores"]]
+        session.clarifications = [Clarification(**item) for item in data.get("clarifications", [])]
         session.topic_index = data["topic_index"]
         session._current_question = data["current_question"]
         session._clarified = data["clarified"]
@@ -74,7 +77,12 @@ class InterviewSession:
         return question
 
     def submit_answer(self, answer: str) -> str | None:
-        """Принимает ответ пользователя. Возвращает следующий вопрос или None, если интервью закончено"""
+        """Возвращает пояснение, следующий вопрос или None при завершении интервью."""
+        explanation = interviewer.respond_to_message(self._current_question, answer, self.clarifications)
+        if explanation is not None:
+            self.clarifications.append(Clarification(request=answer, response=explanation))
+            return explanation
+
         # Шаг 1: все вызовы агентов. Если один из них упадёт, состояние останется прежним
         score = evaluator.score_answer(self._current_question, answer)
         history = self.history + [Turn(question=self._current_question, answer=answer)]
@@ -98,6 +106,7 @@ class InterviewSession:
         self.scores.append(score)
         self.topic_index = topic_index
         self._clarified = need_clarify
+        self.clarifications = []
         if next_question is not None:
             self._current_question = next_question
         return next_question

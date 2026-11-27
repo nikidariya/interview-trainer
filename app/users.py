@@ -70,6 +70,9 @@ def initialize_database() -> None:
                 )
             """)
             conn.execute("""
+                ALTER TABLE interviews ADD COLUMN IF NOT EXISTS custom_title BOOLEAN NOT NULL DEFAULT FALSE
+            """)
+            conn.execute("""
                 CREATE INDEX IF NOT EXISTS interviews_user_updated_idx
                 ON interviews (user_id, updated_at DESC, id DESC)
             """)
